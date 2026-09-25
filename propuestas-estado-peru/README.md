@@ -33,6 +33,8 @@ Los archivos (CV, certificados, anexos, membrete) se guardan en el navegador (In
 
 ## IA: con tu plan de Claude (sin costo extra) o con API
 
+- **Dentro de claude.ai (recomendado)**: publicada como Artifact en tu cuenta, la app consulta a Claude directo con tu plan, sin copiar ni pegar. La primera vez, claude.ai te pide permiso. Los PDF se leen como texto en la app (los escaneados se envían como imágenes de sus primeras páginas) y los documentos largos se procesan por partes. Para regenerar la página que se publica: `python3 herramientas/armar_artifact.py salida.html`.
+
 - **Con mi plan de Claude** (predeterminado). Cuando pides algo con IA, la app abre una ventana con 3 pasos:
   1. copias el pedido;
   2. lo pegas en claude.ai, adjuntando el PDF si te lo indica;
@@ -45,4 +47,4 @@ Los archivos (CV, certificados, anexos, membrete) se guardan en el navegador (In
 
 Los formatos y requisitos son referenciales. Revisa siempre las bases integradas y la normativa vigente antes de presentar.
 
-Librerías incluidas en `vendor/`: `@anthropic-ai/sdk` (MIT, empaquetado para navegador), `pdf-lib` (MIT), `JSZip` (MIT) y `mammoth` (BSD-2).
+Librerías incluidas en `vendor/`: `@anthropic-ai/sdk` (MIT, empaquetado para navegador), `pdf-lib` (MIT), `JSZip` (MIT), `mammoth` (BSD-2) y `pdf.js` (Apache-2.0).

@@ -33,6 +33,8 @@ Reglas:
 
 const IA = {
   modo() {
+    // Dentro de claude.ai la app habla directo con Claude usando la cuenta del usuario.
+    if (typeof Plataforma !== 'undefined' && Plataforma.sample) return 'claude';
     const cfg = (typeof state !== 'undefined' && state.config) || {};
     return cfg.modoIA === 'api' && leerApiKey() && typeof window.Anthropic === 'function' ? 'api' : 'plan';
   },
@@ -81,6 +83,7 @@ const IA = {
 
   describirError(e) {
     if (e && e.message === 'Cancelado.') return '';
+    if (e && typeof e.code === 'string' && !(e instanceof Error)) return mensajeSample(e);
     const A = window.Anthropic;
     if (A && e instanceof A.AuthenticationError) return 'API key inválida. Revísala en Configuración.';
     if (A && e instanceof A.RateLimitError) return 'Límite de uso alcanzado. Espera un momento y vuelve a intentar.';
@@ -150,6 +153,10 @@ Sé concreto: cita el requisito de las bases y qué falta o qué corregir. Forma
 // ---------- Ejecutores: API automática o modo "plan" (copiar y pegar en claude.ai) ----------
 
 async function ejecutarJson(config, { titulo, bloques = [], pedido, esquema, maxTokens = 32000 }) {
+  if (IA.modo() === 'claude') {
+    const r = await pedirDirecto({ titulo, bloques, pedido, esquema });
+    return completarSegunEsquema(r, esquema);
+  }
   if (IA.modo() === 'plan') {
     const texto = await pedirAClaude({ titulo, bloques, pedido, esquema });
     return completarSegunEsquema(extraerJson(texto), esquema);
@@ -167,6 +174,7 @@ async function ejecutarJson(config, { titulo, bloques = [], pedido, esquema, max
 }
 
 async function ejecutarTexto(config, { titulo, bloques = [], pedido }, alTexto = () => {}) {
+  if (IA.modo() === 'claude') return pedirDirecto({ titulo, bloques, pedido, alTexto });
   if (IA.modo() === 'plan') {
     const texto = (await pedirAClaude({ titulo, bloques, pedido })).trim();
     alTexto(texto);
@@ -183,6 +191,130 @@ async function ejecutarTexto(config, { titulo, bloques = [], pedido }, alTexto =
   const msg = await stream.finalMessage();
   IA.verificarRespuesta(msg);
   return IA.textoDe(msg);
+}
+
+// ---------- Modo "claude": directo desde claude.ai con la cuenta del usuario ----------
+
+const LIMITE_PROMPT = 60000; // bytes; la capacidad acepta hasta 64 KiB por llamada
+const bytes = (t) => new TextEncoder().encode(t).length;
+
+function mensajeSample(e) {
+  const m = {
+    cancelled: '',
+    not_granted: 'No diste permiso para que la app use tu cuenta de Claude. Vuelve a abrirla y acepta el permiso para usar la IA.',
+    sampling_disabled: 'Claude no está disponible para tu cuenta en esta vista.',
+    rate_limited: 'Llegaste al límite de uso de tu plan por ahora. Espera un rato y vuelve a intentar.',
+    session_expired: 'Tu sesión de claude.ai expiró. Vuelve a iniciar sesión.',
+    refused: 'Claude no quiso responder esta solicitud. Revisa el contenido e inténtalo con otra información.',
+    prompt_too_large: 'El documento es demasiado grande para una sola consulta. Pega solo las secciones relevantes.',
+    invalid_json: 'Claude respondió en un formato inesperado. Vuelve a intentarlo.',
+    empty_completion: 'Claude no devolvió respuesta. Vuelve a intentarlo.',
+    image_rejected: 'Una de las páginas escaneadas no se pudo enviar.',
+  };
+  return m[e.code] !== undefined ? m[e.code] : 'No se pudo completar la consulta con Claude. Vuelve a intentarlo en un momento.';
+}
+
+function estadoIA(texto) {
+  let el = document.getElementById('estado-ia');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'estado-ia';
+    el.setAttribute('role', 'status');
+    document.body.appendChild(el);
+  }
+  el.textContent = texto;
+  el.hidden = !texto;
+}
+
+// Convierte los adjuntos (PDF) en texto; si el PDF es escaneado, en imágenes de sus primeras páginas.
+async function prepararDocumentos(bloques) {
+  const textos = [];
+  let imagenes = [];
+  for (const b of bloques) {
+    if (b.type === 'text') { textos.push(b.text); continue; }
+    if (b.type !== 'document') continue;
+    estadoIA(`Leyendo ${b.title}…`);
+    const { texto, paginas, pdf } = await textoDePdf(b.source.data);
+    const util = texto.replace(/\[Página \d+\]/g, '').replace(/\s+/g, '');
+    if (util.length < 40 * paginas) {
+      const max = (Plataforma.limites && Plataforma.limites.images && Plataforma.limites.images.maxCount) || 0;
+      if (!max) throw new Error(`"${b.title}" parece escaneado (sin texto) y esta vista no puede enviar imágenes. Usa un PDF con texto o un Word.`);
+      imagenes = imagenes.concat(await imagenesDePdf(pdf, max - imagenes.length));
+      textos.push(`<documento nombre="${b.title}">(Documento escaneado: se adjuntan imágenes de sus primeras ${Math.min(paginas, max)} páginas.)</documento>`);
+    } else {
+      textos.push(`<documento nombre="${b.title}">\n${texto}\n</documento>`);
+    }
+  }
+  return { documento: textos.join('\n\n'), imagenes };
+}
+
+// Si el documento no entra en una consulta, se extraen por partes los fragmentos relevantes para la tarea.
+async function condensar(documento, pedido, sample, titulo) {
+  const presupuesto = LIMITE_PROMPT - bytes(pedido) - 4000;
+  if (bytes(documento) <= presupuesto) return documento;
+  if (presupuesto < 8000) throw Object.assign(new Error('prompt_too_large'), { code: 'prompt_too_large' });
+  const tam = 42000;
+  const partes = [];
+  let actual = '';
+  for (const linea of documento.split('\n')) {
+    if (bytes(actual) + bytes(linea) > tam && actual) { partes.push(actual); actual = ''; }
+    actual += linea + '\n';
+  }
+  if (actual.trim()) partes.push(actual);
+  const tarea = pedido.slice(0, 1500);
+  const extractos = [];
+  for (const [i, parte] of partes.entries()) {
+    estadoIA(`${titulo}: leyendo el documento por partes (${i + 1} de ${partes.length})…`);
+    const { text } = await sample(`Te paso un FRAGMENTO (parte ${i + 1} de ${partes.length}) de un documento de contratación pública del Perú.
+La tarea final será esta:
+<tarea>
+${tarea}
+</tarea>
+
+Copia TEXTUALMENTE solo las partes del fragmento que sirvan para esa tarea (requisitos, perfiles, experiencia exigida, cronograma, montos, plazos, formatos y anexos, factores de evaluación, penalidades, garantías). Conserva numerales y títulos. No resumas ni comentes. Si nada sirve, responde solo: NADA
+
+<fragmento>
+${parte}
+</fragmento>`, { cache: { gcTime: 3600000 } });
+    if (!/^\s*NADA\s*$/i.test(text)) extractos.push(`[Extracto de la parte ${i + 1}]\n${text.trim()}`);
+  }
+  let resultado = extractos.join('\n\n');
+  if (bytes(resultado) > presupuesto) {
+    while (bytes(resultado) > presupuesto) resultado = resultado.slice(0, Math.floor(resultado.length * 0.9));
+    resultado += '\n[… recortado por tamaño]';
+  }
+  return resultado;
+}
+
+async function pedirDirecto({ titulo, bloques, pedido, esquema, alTexto }) {
+  const sample = Plataforma.sample;
+  try {
+    estadoIA(`${titulo}: preparando…`);
+    const { documento, imagenes } = await prepararDocumentos(bloques);
+    const formato = esquema
+      ? `\n\nResponde ÚNICAMENTE con JSON válido (sin texto antes ni después) con exactamente esta estructura; donde dice "a | b" elige una sola opción:\n${JSON.stringify(ejemploDeEsquema(esquema))}`
+      : '';
+    const cabecera = `${SISTEMA_BASE}\n\n`;
+    const doc = documento ? await condensar(documento, cabecera + pedido + formato, sample, titulo) : '';
+    let prompt = `${cabecera}${doc ? doc + '\n\n' : ''}${pedido}${formato}`;
+    if (bytes(prompt) > LIMITE_PROMPT) throw Object.assign(new Error('prompt_too_large'), { code: 'prompt_too_large' });
+    estadoIA(`${titulo}: Claude está trabajando… (puede tardar 1-2 minutos)`);
+    const opciones = { cache: false };
+    if (imagenes.length) opciones.images = imagenes;
+    if (esquema) return await sample.json(prompt, opciones);
+    if (alTexto) {
+      let previo = '';
+      opciones.onText = ({ text }) => { alTexto(text.slice(previo.length)); previo = text; };
+    }
+    const r = await sample(prompt, opciones);
+    if (r.truncated) avisar('La respuesta de Claude quedó incompleta por su longitud. Revisa el final del texto.');
+    return r.text;
+  } catch (e) {
+    if (e && e.code === 'prompt_too_large') throw new Error(mensajeSample(e));
+    throw e;
+  } finally {
+    estadoIA('');
+  }
 }
 
 // Estructura de ejemplo a partir del esquema JSON, para explicarle el formato a Claude en el chat.
@@ -369,7 +501,28 @@ Devuelve un resultado por cada id, con un motivo breve que cite el criterio de l
   },
 
   async llenarAnexo(config, { fuente, contexto, parrafos, titulo }) {
-    const lista = parrafos.map((x, i) => ({ i, t: x.texto, celda: x.enTabla || undefined })).filter((x) => x.t.trim() || x.celda);
+    const todos = parrafos.map((x, i) => ({ i, t: x.texto, celda: x.enTabla || undefined })).filter((x) => x.t.trim() || x.celda);
+    // En claude.ai cada consulta admite ~60 KB: un Word grande se llena por tandas de párrafos.
+    if (IA.modo() === 'claude' && bytes(JSON.stringify(todos)) + bytes(contexto) > 40000) {
+      const tandas = [];
+      let actual = [];
+      for (const x of todos) {
+        if (actual.length && bytes(JSON.stringify(actual)) + bytes(JSON.stringify(x)) > 24000) { tandas.push(actual); actual = []; }
+        actual.push(x);
+      }
+      if (actual.length) tandas.push(actual);
+      const total = { reemplazos: [], pendientes: [] };
+      for (const [k, tanda] of tandas.entries()) {
+        const r = await IA.llenarAnexoTanda(config, { fuente: {}, contexto, lista: tanda, titulo: `${titulo} (parte ${k + 1} de ${tandas.length})` });
+        total.reemplazos.push(...r.reemplazos);
+        total.pendientes.push(...r.pendientes.filter((t) => !total.pendientes.includes(t)));
+      }
+      return total;
+    }
+    return IA.llenarAnexoTanda(config, { fuente, contexto, lista: todos, titulo });
+  },
+
+  async llenarAnexoTanda(config, { fuente, contexto, lista, titulo }) {
     return ejecutarJson(config, {
       titulo: `Llenar anexo: ${titulo}`,
       bloques: IA.bloquesBases(fuente),
@@ -451,7 +604,8 @@ ${JSON.stringify(perfil, null, 1)}
 Al terminar, responde SOLO con un bloque \`\`\`json con este formato:
 {"convocatorias":[{"entidad":"","titulo":"","url":"","fechaLimite":"","monto":"","requisitosClave":"","compatibilidad":"alta|media|baja","motivo":""}],"notas":""}
 Incluye solo convocatorias con enlace real encontrado en la búsqueda; no inventes enlaces. Si no encuentras vigentes, devuelve la lista vacía y explica en "notas" dónde buscar.`;
-    if (IA.modo() === 'plan') {
+    // Desde claude.ai la app no puede navegar por internet: la búsqueda se hace pegando el pedido en un chat.
+    if (IA.modo() === 'plan' || IA.modo() === 'claude') {
       const texto = await pedirAClaude({ titulo: 'Buscar convocatorias menores a 8 UIT', bloques: [], pedido: pedido + '\n\nUsa la búsqueda web para encontrarlas.' });
       try {
         return completarSegunEsquema(extraerJson(texto), ESQUEMA_BUSQUEDA);

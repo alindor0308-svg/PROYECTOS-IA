@@ -437,6 +437,21 @@ function vEmpresa() {
 function vConfig() {
   const key = leerApiKey();
   const api = state.config.modoIA === 'api';
+  if (IA.modo() === 'claude') {
+    return `<section class="tarjeta">
+    <h2>Asistente con IA (Claude)</h2>
+    <p class="alerta ok">Conectado directo a tu cuenta de Claude. Las consultas usan tu plan, sin copiar y pegar ni pagos extra.</p>
+    <p class="ayuda">La primera vez que uses la IA, claude.ai te pedirá permiso para que esta app use tu cuenta. Cada consulta cuenta dentro del límite de uso de tu plan.</p>
+    <p class="ayuda">Los PDF se leen como texto dentro de la app. Si un PDF es escaneado (solo imagen), se envían imágenes de sus primeras páginas; para documentos largos escaneados, mejor usa la versión en Word o con texto.</p>
+    <p class="ayuda">La búsqueda de convocatorias en internet se hace pegando el pedido en un chat de Claude, porque la app no puede navegar.</p>
+  </section>
+  <section class="tarjeta">
+    <h3>Contrataciones menores</h3>
+    <div class="grid">${campo('config.uit', 'Valor de la UIT vigente (S/)', { tipo: 'number' })}</div>
+    <p class="ayuda">Se usa para calcular el tope de 8 UIT. Verifica el valor oficial del año.</p>
+    <p class="alerta warn">La IA puede equivocarse. Verifica siempre contra las bases integradas antes de presentar.</p>
+  </section>`;
+  }
   return `
   <section class="tarjeta">
     <h2>Asistente con IA (Claude)</h2>
@@ -694,8 +709,8 @@ function tabDocumentos(p, b) {
     <p class="ayuda">Genera los anexos con tus datos ya llenados, la propuesta técnica y la oferta económica. Descárgalos en Word para revisar, firmar y convertir a PDF antes de subirlos a la plataforma.</p>
     <p class="alerta warn">Los formatos son referenciales: usa la numeración y el texto exacto de los anexos de las bases estándar de tu procedimiento.</p>
     <div class="fila">
-      <button class="btn primario" data-action="descargar-doc">⬇ Descargar Word (.doc)</button>
-      <button class="btn" data-action="imprimir">🖨 Imprimir / guardar PDF</button>
+      <button class="btn primario" data-action="descargar-doc">⬇ Descargar para Word</button>
+      ${Plataforma.enClaude ? '' : '<button class="btn" data-action="imprimir">🖨 Imprimir / guardar PDF</button>'}
       ${IA.disponible() ? `<button class="btn" data-action="revisar" ${ocupado ? 'disabled' : ''}>${ocupado ? 'Revisando…' : '✨ Revisar oferta con IA'}</button>` : ''}
     </div>
   </section>
@@ -836,17 +851,6 @@ function documentoCompleto(p) {
 <body>${documentosHtml(p).join(salto)}</body></html>`;
 }
 
-function descargar(nombre, contenido, tipo) {
-  const blob = new Blob([contenido], { type: tipo });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = nombre;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-}
-
 const nombreArchivo = (p) => (p.nomenclatura || 'oferta').replace(/[^\w.-]+/g, '_');
 
 // ---------- Contexto para la IA ----------
@@ -904,9 +908,9 @@ const acciones = {
     render();
   },
   abrir({ id }) { Object.assign(vista, { pagina: 'proceso', procesoId: id, tab: 'resumen' }); render(); window.scrollTo(0, 0); },
-  'eliminar-proceso'({ id }) {
+  async 'eliminar-proceso'({ id }) {
     const p = state.procesos.find((x) => x.id === id);
-    if (!confirm(`¿Eliminar el proceso "${p.nomenclatura || 'sin nomenclatura'}"? Esta acción no se puede deshacer.`)) return;
+    if (!await confirmar(`¿Eliminar el proceso "${p.nomenclatura || 'sin nomenclatura'}"? Esta acción no se puede deshacer.`)) return;
     state.procesos = state.procesos.filter((x) => x.id !== id);
     guardar();
     render();
@@ -926,11 +930,11 @@ const acciones = {
     guardar();
     render();
   },
-  quitar({ lista, i }) {
+  async quitar({ lista, i }) {
     const arr = getPath(state, lista);
     const x = arr[+i];
     const vacio = Object.entries(x).every(([k, v]) => k === 'id' || !v || k === 'tipo' || k === 'tenencia' || k === 'categoria');
-    if (!vacio && !confirm('¿Quitar este elemento?')) return;
+    if (!vacio && !await confirmar('¿Quitar este elemento?', { si: 'Quitar' })) return;
     arr.splice(+i, 1);
     guardar();
     render();
@@ -964,13 +968,13 @@ const acciones = {
       p.analisis = await IA.analizarBases(state.config, fuenteIA(p));
       guardar();
     } catch (e) {
-      if (IA.describirError(e)) alert('No se pudo analizar: ' + IA.describirError(e));
+      if (IA.describirError(e)) avisar('No se pudo analizar: ' + IA.describirError(e));
     } finally {
       delete iaOcupada[clave];
       render();
     }
   },
-  'aplicar-analisis'() {
+  async 'aplicar-analisis'() {
     const p = procesoActual();
     const a = p.analisis;
     if (!a) return;
@@ -986,12 +990,12 @@ const acciones = {
     if (/USD|D[ÓO]LAR/i.test(a.moneda || '')) p.moneda = 'USD';
     if (a.cronograma.length) p.cronograma = a.cronograma.map((c) => ({ etapa: c.etapa, fecha: /^\d{4}-\d{2}-\d{2}$/.test(c.fecha) ? c.fecha : '', original: c.fecha }));
     if (a.requisitos.length) {
-      const reemplazar = confirm(`Se detectaron ${a.requisitos.length} requisitos en las bases.\n\nAceptar: reemplazar la lista referencial por la de las bases.\nCancelar: agregarlos a la lista actual.`);
+      const reemplazar = await confirmar(`Se detectaron ${a.requisitos.length} requisitos en las bases. ¿Reemplazo la lista referencial por la de las bases, o los agrego a la lista actual?`, { si: 'Reemplazar', no: 'Agregar' });
       const nuevos = a.requisitos.map((r) => ({ id: uid(), categoria: r.categoria, texto: r.texto, referencia: r.referencia, cumple: false, nota: '' }));
       p.requisitos = reemplazar ? nuevos : [...p.requisitos, ...nuevos];
     }
     if (a.tipoObjeto && a.tipoObjeto !== p.tipoObjeto) {
-      alert(`Las bases indican que el objeto es "${TIPOS_OBJETO[a.tipoObjeto]}", pero el proceso se creó como "${TIPOS_OBJETO[p.tipoObjeto]}". Si es un error, crea un nuevo proceso del tipo correcto.`);
+      avisar(`Las bases indican que el objeto es "${TIPOS_OBJETO[a.tipoObjeto]}", pero el proceso se creó como "${TIPOS_OBJETO[p.tipoObjeto]}". Si es un error, crea un nuevo proceso del tipo correcto.`);
     }
     guardar();
     vista.tab = 'resumen';
@@ -1022,7 +1026,7 @@ const acciones = {
       });
       guardar();
     } catch (e) {
-      if (IA.describirError(e)) alert('No se pudo revisar: ' + IA.describirError(e));
+      if (IA.describirError(e)) avisar('No se pudo revisar: ' + IA.describirError(e));
     } finally {
       delete iaOcupada[clave];
       render();
@@ -1030,12 +1034,14 @@ const acciones = {
   },
   'descargar-doc'() {
     const p = procesoActual();
-    descargar(`Oferta_${nombreArchivo(p)}.doc`, documentoCompleto(p), 'application/msword');
+    // claude.ai no admite .doc: allí se descarga como .html, que Word también abre.
+    if (Plataforma.enClaude) descargar(`Oferta_${nombreArchivo(p)}.html`, documentoCompleto(p), 'text/html');
+    else descargar(`Oferta_${nombreArchivo(p)}.doc`, documentoCompleto(p), 'application/msword');
   },
   imprimir() {
     const p = procesoActual();
     const w = window.open('', '_blank');
-    if (!w) { alert('Permite las ventanas emergentes para imprimir.'); return; }
+    if (!w) { avisar('Permite las ventanas emergentes para imprimir.'); return; }
     w.document.write(documentoCompleto(p).replace('</style>', '@page{margin:2cm}</style>'));
     w.document.close();
     w.focus();
@@ -1046,7 +1052,7 @@ const acciones = {
   },
   'guardar-key'() {
     guardarApiKey(document.getElementById('api-key').value.trim(), state.config.recordarKey);
-    alert(leerApiKey() ? 'API key guardada.' : 'API key borrada.');
+    avisar(leerApiKey() ? 'API key guardada.' : 'API key borrada.');
     render();
   },
   'borrar-key'() { guardarApiKey('', false); render(); },
@@ -1073,7 +1079,7 @@ async function redactarSeccion(p, s) {
     return true;
   } catch (e) {
     s.contenido = anterior;
-    if (IA.describirError(e)) alert(`No se pudo redactar "${s.titulo}": ` + IA.describirError(e));
+    if (IA.describirError(e)) avisar(`No se pudo redactar "${s.titulo}": ` + IA.describirError(e));
     return false;
   } finally {
     delete iaOcupada[clave];
@@ -1152,12 +1158,12 @@ async function importarJson(input) {
   try {
     const datos = JSON.parse(await leerArchivo(f));
     if (!datos.empresa || !Array.isArray(datos.procesos)) throw new Error('El archivo no parece un respaldo de esta app.');
-    if (!confirm('Esto reemplazará todos los datos actuales por los del respaldo. ¿Continuar?')) return;
+    if (!await confirmar('Esto reemplazará todos los datos actuales por los del respaldo. ¿Continuar?', { si: 'Restaurar' })) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(datos));
     state = cargar();
     render();
   } catch (e) {
-    alert('No se pudo restaurar: ' + e.message);
+    avisar('No se pudo restaurar: ' + e.message);
   } finally {
     input.value = '';
   }
@@ -1167,7 +1173,7 @@ async function subirPdf(input) {
   const f = input.files[0];
   if (!f) return;
   if (f.size > 30 * 1048576) {
-    alert('El PDF supera 30 MB. Divide el documento o pega solo las secciones relevantes como texto.');
+    avisar('El PDF supera 30 MB. Divide el documento o pega solo las secciones relevantes como texto.');
     input.value = '';
     return;
   }
@@ -1196,8 +1202,8 @@ async function importarCsv(input) {
     id: uid(), item: c[0].trim(), descripcion: c[1].trim(), unidad: c[2].trim(), metrado: num(c[3]), pu: num(c[4]),
   }));
   input.value = '';
-  if (!nuevas.length) { alert('No se encontraron filas válidas. Formato esperado por línea: ítem;descripción;unidad;metrado;precio unitario'); return; }
-  const reemplazar = confirm(`Se leyeron ${nuevas.length} partidas.\n\nAceptar: reemplazar las partidas actuales.\nCancelar: agregarlas al final.`);
+  if (!nuevas.length) { avisar('No se encontraron filas válidas. Formato esperado por línea: ítem;descripción;unidad;metrado;precio unitario'); return; }
+  const reemplazar = await confirmar(`Se leyeron ${nuevas.length} partidas. ¿Reemplazo las partidas actuales o las agrego al final?`, { si: 'Reemplazar', no: 'Agregar al final' });
   p.presupuesto.partidas = reemplazar ? nuevas : [...p.presupuesto.partidas, ...nuevas];
   guardar();
   render();

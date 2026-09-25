@@ -11,7 +11,7 @@ async function conIA(clave, fn) {
   try {
     await fn();
   } catch (e) {
-    if (IA.describirError(e)) alert(IA.describirError(e));
+    if (IA.describirError(e)) avisar(IA.describirError(e));
   } finally {
     delete iaOcupada[clave];
     guardar();
@@ -22,7 +22,7 @@ async function conIA(clave, fn) {
 function botonIA(accion, texto, clave, extra = '') {
   const ocupado = iaOcupada[clave];
   if (!IA.disponible()) return `<span class="ayuda">✨ ${esc(texto)}: configura tu API key en <a href="#" data-action="ir" data-pagina="config">Configuración</a>.</span>`;
-  const espera = IA.modo() === 'plan' ? '⏳ Esperando la respuesta de Claude…' : '⏳ Procesando… (puede tardar unos minutos)';
+  const espera = IA.modo() === 'plan' ? '⏳ Esperando la respuesta de Claude…' : '⏳ Claude está trabajando… (puede tardar unos minutos)';
   return `<button class="btn primario" data-action="${accion}" ${extra} ${ocupado ? 'disabled' : ''}>${ocupado ? espera : '✨ ' + esc(texto)}</button>`;
 }
 
@@ -209,7 +209,7 @@ async function importarCV(archivo, tipo) {
         monto: e.monto || 0, inicio: normalizarFecha(e.inicio), fecha: normalizarFin(e.fin), sustento: '', archivos: [],
       }));
       state.docsEmpresa.push({ id: uid(), nombre: 'CV / portafolio de la empresa', archivoId, archivoNombre: archivo.name });
-      alert(`Se agregaron ${r.experiencias.length} experiencias de la empresa. Revísalas y adjunta sus sustentos.`);
+      avisar(`Se agregaron ${r.experiencias.length} experiencias de la empresa. Revísalas y adjunta sus sustentos.`);
     } else {
       const t = r.titular;
       const persona = {
@@ -225,7 +225,7 @@ async function importarCV(archivo, tipo) {
       };
       state.personal.push(persona);
       personasAbiertas.add(persona.id);
-      alert(`CV importado: ${persona.nombre || 'profesional'} con ${persona.experiencias.length} experiencias. Revisa fechas y adjunta los certificados.`);
+      avisar(`CV importado: ${persona.nombre || 'profesional'} con ${persona.experiencias.length} experiencias. Revisa fechas y adjunta los certificados.`);
     }
   });
 }
@@ -531,7 +531,7 @@ async function subirArchivo(el) {
         return;
     }
   } catch (e) {
-    alert('No se pudo guardar el archivo: ' + e.message);
+    avisar('No se pudo guardar el archivo: ' + e.message);
   }
   guardar();
   render();
@@ -545,7 +545,7 @@ Object.assign(acciones, {
   async 'quitar-archivo'({ lista, i }) {
     const arr = getPath(state, lista);
     const x = arr[+i];
-    if (!confirm(`¿Quitar "${x.nombre}"?`)) return;
+    if (!await confirmar(`¿Quitar "${x.nombre}"?`, { si: 'Quitar' })) return;
     arr.splice(+i, 1);
     await Archivos.borrar(x.archivoId);
     guardar();
@@ -562,7 +562,7 @@ Object.assign(acciones, {
     try {
       descargar('Separador de prueba.docx', await Expediente.separadorDocx('EXPERIENCIA ESPECÍFICA', 'Separador de prueba'), MIME_DOCX);
     } catch (e) {
-      alert(e.message);
+      avisar(e.message);
     }
   },
   'agregar-persona'() {
@@ -596,7 +596,7 @@ Object.assign(acciones, {
       ...state.experiencia.map((x) => ({ id: x.id, titular: 'empresa postora', cliente: x.cliente, objeto: x.objeto, tipo: x.tipo, especialidad: x.especialidad, monto: x.monto, fecha: x.fecha })),
       ...personas.flatMap((x) => (x.experiencias || []).map((e) => ({ id: e.id, titular: `${x.nombre} (${x.profesion})`, entidad: e.entidad, cargo: e.cargo, proyecto: e.proyecto, inicio: e.inicio, fin: e.fin || 'a la fecha' }))),
     ];
-    if (!experiencias.length) { alert('No hay experiencias para clasificar.'); return; }
+    if (!experiencias.length) { avisar('No hay experiencias para clasificar.'); return; }
     await conIA('clasif-' + p.id, async () => {
       const r = await IA.clasificarExperiencias(state.config, { fuente: fuenteIA(p), contexto: contextoIA(p), experiencias, definicion: p.defExperiencia });
       p.clasif = p.clasif || {};
@@ -612,7 +612,7 @@ Object.assign(acciones, {
     await conIA('anexos-' + p.id, async () => {
       const lista = await IA.extraerAnexos(state.config, { fuente: fuenteIA(p), contexto: contextoAnexos(p) });
       lista.forEach((a) => p.anexos.push({ id: uid(), titulo: a.titulo, origen: 'texto', contenido: a.contenido, pendientes: a.pendientes }));
-      if (!lista.length) alert('No se encontraron anexos en las bases.');
+      if (!lista.length) avisar('No se encontraron anexos en las bases.');
     });
   },
   'anexo-blanco'() {
@@ -623,7 +623,7 @@ Object.assign(acciones, {
   async 'quitar-anexo'({ i }) {
     const p = procesoActual();
     const a = p.anexos[+i];
-    if (!confirm(`¿Eliminar "${a.titulo}"?`)) return;
+    if (!await confirmar(`¿Eliminar "${a.titulo}"?`, { si: 'Eliminar' })) return;
     p.anexos.splice(+i, 1);
     await Promise.all([a.archivoId, a.llenadoId, a.firmadoId].map((id) => Archivos.borrar(id)));
     guardar();
@@ -676,11 +676,11 @@ Object.assign(acciones, {
     guardar();
     render();
   },
-  'estructura-sugerida'() {
+  async 'estructura-sugerida'() {
     const p = procesoActual();
-    if (p.estructura.length && !confirm('¿Reemplazar la estructura actual por la sugerida?')) return;
+    if (p.estructura.length && !await confirmar('¿Reemplazar la estructura actual por la sugerida?', { si: 'Reemplazar' })) return;
     p.estructura = estructuraSugerida(p);
-    if (!p.estructura.length) alert('Primero agrega anexos, documentos o clasifica experiencias.');
+    if (!p.estructura.length) avisar('Primero agrega anexos, documentos o clasifica experiencias.');
     guardar();
     render();
   },
@@ -748,7 +748,7 @@ async function generarExpediente(tipo) {
     }
   } catch (e) {
     vista.progreso = '';
-    alert('No se pudo generar: ' + e.message);
+    avisar('No se pudo generar: ' + e.message);
   } finally {
     delete iaOcupada[clave];
     guardar();

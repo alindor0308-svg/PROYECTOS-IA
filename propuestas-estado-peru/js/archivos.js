@@ -44,14 +44,15 @@ const Archivos = (() => {
     },
     async abrir(id) {
       const a = await this.leer(id);
-      if (!a) { alert('El archivo ya no está en este navegador.'); return; }
+      if (!a) { avisar('El archivo ya no está en este navegador.'); return; }
+      if (Plataforma.enClaude) { descargar(a.nombre, a.blob, a.tipo); return; }
       const url = URL.createObjectURL(a.blob);
       window.open(url, '_blank');
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     },
     async descargar(id, nombre) {
       const a = await this.leer(id);
-      if (!a) { alert('El archivo ya no está en este navegador.'); return; }
+      if (!a) { avisar('El archivo ya no está en este navegador.'); return; }
       descargar(nombre || a.nombre, a.blob, a.tipo);
     },
   };
