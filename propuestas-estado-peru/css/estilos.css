@@ -255,3 +255,13 @@ select.clasif.general { border-color: var(--primario); color: var(--primario); }
 .tabla.estructura td.cfg { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .tabla.estructura td.cfg .celda { flex: 1; min-width: 160px; }
 .tabla.estructura tr.fila-separador td { background: var(--azul-fondo); }
+
+.opcion-modo { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--borde); border-radius: 8px; padding: 12px; margin: 8px 0; cursor: pointer; }
+.opcion-modo.activo { border-color: var(--primario); background: var(--azul-fondo); }
+.opcion-modo input { margin-top: 4px; }
+dialog.dialogo-plan { max-width: 680px; width: calc(100% - 32px); border: 1px solid var(--borde); border-radius: 12px; padding: 20px 24px; background: var(--panel); color: var(--texto); }
+dialog.dialogo-plan::backdrop { background: rgba(0, 0, 0, .45); }
+dialog.dialogo-plan .pasos { padding-left: 20px; }
+dialog.dialogo-plan .pasos li { margin-bottom: 14px; line-height: 1.6; }
+dialog.dialogo-plan textarea { margin-top: 6px; font-size: 13px; }
+.ok-copiado { color: var(--verde); font-weight: 600; }

@@ -11,7 +11,7 @@ async function conIA(clave, fn) {
   try {
     await fn();
   } catch (e) {
-    alert(IA.describirError(e));
+    if (IA.describirError(e)) alert(IA.describirError(e));
   } finally {
     delete iaOcupada[clave];
     guardar();
@@ -22,13 +22,14 @@ async function conIA(clave, fn) {
 function botonIA(accion, texto, clave, extra = '') {
   const ocupado = iaOcupada[clave];
   if (!IA.disponible()) return `<span class="ayuda">✨ ${esc(texto)}: configura tu API key en <a href="#" data-action="ir" data-pagina="config">Configuración</a>.</span>`;
-  return `<button class="btn primario" data-action="${accion}" ${extra} ${ocupado ? 'disabled' : ''}>${ocupado ? '⏳ Procesando… (puede tardar unos minutos)' : '✨ ' + esc(texto)}</button>`;
+  const espera = IA.modo() === 'plan' ? '⏳ Esperando la respuesta de Claude…' : '⏳ Procesando… (puede tardar unos minutos)';
+  return `<button class="btn primario" data-action="${accion}" ${extra} ${ocupado ? 'disabled' : ''}>${ocupado ? espera : '✨ ' + esc(texto)}</button>`;
 }
 
 function botonImportarCV(tipo, texto) {
   const clave = 'cv-' + tipo;
   if (!IA.disponible()) return `<p class="ayuda">✨ ${esc(texto)}: configura tu API key en <a href="#" data-action="ir" data-pagina="config">Configuración</a>.</p>`;
-  return `<div class="fila">${iaOcupada[clave] ? '<span class="btn" aria-busy="true">⏳ Leyendo el CV y separando experiencias…</span>'
+  return `<div class="fila">${iaOcupada[clave] ? `<span class="btn" aria-busy="true">⏳ ${IA.modo() === 'plan' ? 'Esperando la respuesta de Claude…' : 'Leyendo el CV y separando experiencias…'}</span>`
     : `<label class="btn primario">✨ ${esc(texto)}<input type="file" hidden accept="application/pdf,.docx" data-subir="${tipo}"></label>`}
     <span class="ayuda">PDF o Word. Revisa lo que extrae la IA antes de usarlo.</span></div>`;
 }

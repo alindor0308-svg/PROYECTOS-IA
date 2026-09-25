@@ -1,6 +1,8 @@
 'use strict';
-// Integración opcional con Claude (API de Anthropic) directamente desde el navegador.
-// La API key se guarda solo en este navegador y viaja únicamente a api.anthropic.com.
+// Asistente con Claude. Dos modos:
+// - "plan": sin costo extra. La app arma el pedido, el usuario lo pega en claude.ai (con su plan)
+//   y pega la respuesta de vuelta.
+// - "api": automático con una API key de Anthropic (se cobra aparte en console.anthropic.com).
 
 const CLAVE_API = 'ppe-api-key';
 
@@ -30,8 +32,13 @@ Reglas:
 - Si algo de las bases es ambiguo, dilo en lugar de suponer.`;
 
 const IA = {
+  modo() {
+    const cfg = (typeof state !== 'undefined' && state.config) || {};
+    return cfg.modoIA === 'api' && leerApiKey() && typeof window.Anthropic === 'function' ? 'api' : 'plan';
+  },
+
   disponible() {
-    return Boolean(leerApiKey()) && typeof window.Anthropic === 'function';
+    return true;
   },
 
   cliente() {
@@ -73,6 +80,7 @@ const IA = {
   },
 
   describirError(e) {
+    if (e && e.message === 'Cancelado.') return '';
     const A = window.Anthropic;
     if (A && e instanceof A.AuthenticationError) return 'API key inválida. Revísala en Configuración.';
     if (A && e instanceof A.RateLimitError) return 'Límite de uso alcanzado. Espera un momento y vuelve a intentar.';
@@ -99,58 +107,31 @@ const IA = {
   },
 
   async analizarBases(config, fuente) {
-    const client = IA.cliente();
     const bloques = IA.bloquesBases(fuente);
     if (!bloques.length) throw new Error('Sube el PDF de las bases o pega su texto.');
-    const params = IA.parametros(config, { format: { type: 'json_schema', schema: ESQUEMA_ANALISIS } });
-    const stream = client.beta.messages.stream({
-      ...params,
-      max_tokens: 32000,
-      system: SISTEMA_BASE,
-      messages: [{
-        role: 'user',
-        content: [
-          ...bloques,
-          {
-            type: 'text',
-            text: `Analiza las bases anteriores y extrae la información para preparar la oferta.
+    return ejecutarJson(config, {
+      titulo: 'Analizar bases',
+      bloques,
+      esquema: ESQUEMA_ANALISIS,
+      pedido: `Analiza las bases y extrae la información para preparar la oferta.
 - Usa "" o 0 cuando un dato no figure en las bases; no lo supongas.
 - Fechas del cronograma en formato AAAA-MM-DD cuando se puedan determinar; si no, deja la fecha como aparece.
 - En "requisitos" incluye cada documento o condición que el postor debe presentar o cumplir, clasificado en Admisión, Calificación, Evaluación o Contrato, con la referencia al numeral de las bases.
 - En "alertas" anota plazos críticos, penalidades altas, requisitos difíciles de cumplir, inconsistencias o puntos que convendría consultar u observar.`,
-          },
-        ],
-      }],
     });
-    const msg = await stream.finalMessage();
-    IA.verificarRespuesta(msg);
-    return JSON.parse(IA.textoDe(msg));
   },
 
   async redactarSeccion(config, { fuente, contexto, seccion, instrucciones, borradorActual }, alTexto) {
-    const client = IA.cliente();
-    const bloques = IA.bloquesBases(fuente);
     const pedido = `Redacta la sección "${seccion}" de la propuesta técnica para este procedimiento.
 
 ${contexto}
 
 ${borradorActual ? `Borrador actual de la sección (mejóralo y consérvale los datos correctos):\n<borrador>\n${borradorActual}\n</borrador>\n` : ''}${instrucciones ? `Indicaciones del usuario: ${instrucciones}\n` : ''}
 Formato de salida: texto listo para pegar en la oferta, sin preámbulos ni comentarios sobre lo que haces. Usa "## " para subtítulos, "- " para viñetas y párrafos separados por una línea en blanco. No uses negritas ni tablas.`;
-    const stream = client.beta.messages.stream({
-      ...IA.parametros(config),
-      max_tokens: 16000,
-      system: SISTEMA_BASE,
-      messages: [{ role: 'user', content: [...bloques, { type: 'text', text: pedido }] }],
-    });
-    stream.on('text', (delta) => alTexto(delta));
-    const msg = await stream.finalMessage();
-    IA.verificarRespuesta(msg);
-    return IA.textoDe(msg);
+    return ejecutarTexto(config, { titulo: `Redactar: ${seccion}`, bloques: IA.bloquesBases(fuente), pedido }, alTexto);
   },
 
   async revisarOferta(config, { fuente, contexto }, alTexto) {
-    const client = IA.cliente();
-    const bloques = IA.bloquesBases(fuente);
     const pedido = `Actúa como el comité de selección y revisa la oferta que se describe a continuación frente a las bases.
 
 ${contexto}
@@ -161,22 +142,18 @@ Entrega:
 ## Cómo mejorar el puntaje
 ## Documentos que faltan
 Sé concreto: cita el requisito de las bases y qué falta o qué corregir. Formato: "## " para títulos y "- " para viñetas.`;
-    const stream = client.beta.messages.stream({
-      ...IA.parametros(config),
-      max_tokens: 16000,
-      system: SISTEMA_BASE,
-      messages: [{ role: 'user', content: [...bloques, { type: 'text', text: pedido }] }],
-    });
-    stream.on('text', (delta) => alTexto(delta));
-    const msg = await stream.finalMessage();
-    IA.verificarRespuesta(msg);
-    return IA.textoDe(msg);
+    return ejecutarTexto(config, { titulo: 'Revisar oferta', bloques: IA.bloquesBases(fuente), pedido }, alTexto);
   },
 };
 
 
-// Llamada genérica con salida JSON validada por esquema.
-async function llamarJson(config, { bloques = [], pedido, esquema, maxTokens = 32000 }) {
+// ---------- Ejecutores: API automática o modo "plan" (copiar y pegar en claude.ai) ----------
+
+async function ejecutarJson(config, { titulo, bloques = [], pedido, esquema, maxTokens = 32000 }) {
+  if (IA.modo() === 'plan') {
+    const texto = await pedirAClaude({ titulo, bloques, pedido, esquema });
+    return completarSegunEsquema(extraerJson(texto), esquema);
+  }
   const client = IA.cliente();
   const stream = client.beta.messages.stream({
     ...IA.parametros(config, { format: { type: 'json_schema', schema: esquema } }),
@@ -187,6 +164,127 @@ async function llamarJson(config, { bloques = [], pedido, esquema, maxTokens = 3
   const msg = await stream.finalMessage();
   IA.verificarRespuesta(msg);
   return JSON.parse(IA.textoDe(msg));
+}
+
+async function ejecutarTexto(config, { titulo, bloques = [], pedido }, alTexto = () => {}) {
+  if (IA.modo() === 'plan') {
+    const texto = (await pedirAClaude({ titulo, bloques, pedido })).trim();
+    alTexto(texto);
+    return texto;
+  }
+  const client = IA.cliente();
+  const stream = client.beta.messages.stream({
+    ...IA.parametros(config),
+    max_tokens: 16000,
+    system: SISTEMA_BASE,
+    messages: [{ role: 'user', content: [...bloques, { type: 'text', text: pedido }] }],
+  });
+  stream.on('text', (delta) => alTexto(delta));
+  const msg = await stream.finalMessage();
+  IA.verificarRespuesta(msg);
+  return IA.textoDe(msg);
+}
+
+// Estructura de ejemplo a partir del esquema JSON, para explicarle el formato a Claude en el chat.
+function ejemploDeEsquema(e) {
+  if (e.type === 'object') return Object.fromEntries(Object.entries(e.properties).map(([k, v]) => [k, ejemploDeEsquema(v)]));
+  if (e.type === 'array') return [ejemploDeEsquema(e.items)];
+  if (e.enum) return e.enum.join(' | ');
+  if (e.type === 'number' || e.type === 'integer') return 0;
+  return '';
+}
+
+// Rellena campos faltantes y corrige tipos de una respuesta pegada a mano.
+function completarSegunEsquema(v, e) {
+  if (e.type === 'object') {
+    const o = v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+    Object.entries(e.properties).forEach(([k, sub]) => { o[k] = completarSegunEsquema(o[k], sub); });
+    return o;
+  }
+  if (e.type === 'array') return Array.isArray(v) ? v.map((x) => completarSegunEsquema(x, e.items)) : [];
+  if (e.type === 'number' || e.type === 'integer') {
+    const n = typeof v === 'number' ? v : parseFloat(String(v == null ? '' : v).replace(/[^\d.-]/g, ''));
+    return Number.isFinite(n) ? (e.type === 'integer' ? Math.round(n) : n) : 0;
+  }
+  if (e.enum) return e.enum.includes(v) ? v : (e.enum.find((x) => String(v || '').toLowerCase().includes(x.toLowerCase())) || e.enum[e.enum.length - 1]);
+  return v == null ? '' : String(v);
+}
+
+function extraerJson(texto) {
+  const t = String(texto || '').trim();
+  const bloque = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const candidato = bloque ? bloque[1] : t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1);
+  try {
+    return JSON.parse(candidato);
+  } catch (e) {
+    throw new Error('La respuesta pegada no es un JSON válido. Copia la respuesta completa de Claude (el bloque que empieza con { y termina con }).');
+  }
+}
+
+function armarPrompt({ bloques, pedido, esquema }) {
+  const adjuntos = bloques.filter((b) => b.type === 'document').map((b) => b.title);
+  const textos = bloques.filter((b) => b.type === 'text').map((b) => b.text);
+  return `${SISTEMA_BASE}
+
+${adjuntos.length ? `Documento(s) adjunto(s) en este mensaje: ${adjuntos.map((a) => `"${a}"`).join(', ')}. Léelo(s) completo(s).\n\n` : ''}${textos.join('\n\n')}${textos.length ? '\n\n' : ''}${pedido}${esquema ? `
+
+IMPORTANTE: responde ÚNICAMENTE con un bloque \`\`\`json que tenga exactamente esta estructura (reemplaza los valores de ejemplo; donde dice "a | b" elige una sola opción):
+${JSON.stringify(ejemploDeEsquema(esquema), null, 1)}` : ''}`;
+}
+
+// Abre la ventana de "copiar y pegar" y espera la respuesta que el usuario trae de claude.ai.
+function pedirAClaude({ titulo, bloques, pedido, esquema }) {
+  const prompt = armarPrompt({ bloques, pedido, esquema });
+  const adjuntos = bloques.filter((b) => b.type === 'document');
+  return new Promise((resolver, rechazar) => {
+    const dlg = document.createElement('dialog');
+    dlg.className = 'dialogo-plan';
+    dlg.innerHTML = `<h2>✨ ${esc(titulo || 'Pedir a Claude')}</h2>
+      <p class="ayuda">Usa tu plan de Claude, sin costo extra. Sigue los 3 pasos:</p>
+      <ol class="pasos">
+        <li><strong>Copia el pedido</strong> <button class="btn primario" data-p="copiar">📋 Copiar pedido</button> <span class="ok-copiado" hidden>¡Copiado!</span>
+          <details><summary>Ver el pedido (${prompt.length.toLocaleString('es-PE')} caracteres)</summary><textarea readonly rows="8">${esc(prompt)}</textarea></details></li>
+        <li><strong>Abre Claude</strong>, pega el pedido${adjuntos.length ? ' y <strong>adjunta</strong> ' + adjuntos.map((a) => `<em>${esc(a.title)}</em> <button class="btn chico" data-p="bajar" data-n="${esc(a.title)}">⬇ bajarlo</button>`).join(', ') : ''} y envíalo.
+          <a class="btn" href="https://claude.ai/new" target="_blank" rel="noopener">Abrir claude.ai ↗</a></li>
+        <li><strong>Copia la respuesta completa de Claude</strong> (botón "Copiar" debajo de la respuesta) y pégala aquí:
+          <textarea data-p="respuesta" rows="7" placeholder="${esquema ? 'Pega aquí la respuesta (el bloque JSON)…' : 'Pega aquí la respuesta de Claude…'}"></textarea></li>
+      </ol>
+      <p class="alerta error" data-p="error" hidden></p>
+      <div class="fila"><button class="btn primario" data-p="cargar">Cargar respuesta</button><button class="btn" data-p="cancelar">Cancelar</button></div>`;
+    document.body.appendChild(dlg);
+    const q = (k) => dlg.querySelector(`[data-p="${k}"]`);
+    const cerrar = () => { dlg.close(); dlg.remove(); };
+    q('copiar').onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(prompt);
+      } catch (e) {
+        const ta = dlg.querySelector('details textarea');
+        dlg.querySelector('details').open = true;
+        ta.select();
+        document.execCommand('copy');
+      }
+      dlg.querySelector('.ok-copiado').hidden = false;
+    };
+    dlg.querySelectorAll('[data-p="bajar"]').forEach((b) => {
+      b.onclick = () => {
+        const a = adjuntos.find((x) => x.title === b.dataset.n);
+        const bytes = Uint8Array.from(atob(a.source.data), (c) => c.charCodeAt(0));
+        descargar(/\.pdf$/i.test(a.title) ? a.title : a.title + '.pdf', new Blob([bytes], { type: 'application/pdf' }), 'application/pdf');
+      };
+    });
+    q('cargar').onclick = () => {
+      const texto = q('respuesta').value;
+      if (!texto.trim()) { q('error').hidden = false; q('error').textContent = 'Pega primero la respuesta de Claude.'; return; }
+      if (esquema) {
+        try { extraerJson(texto); } catch (e) { q('error').hidden = false; q('error').textContent = e.message; return; }
+      }
+      cerrar();
+      resolver(texto);
+    };
+    q('cancelar').onclick = () => { cerrar(); rechazar(new Error('Cancelado.')); };
+    dlg.addEventListener('cancel', (ev) => { ev.preventDefault(); q('cancelar').onclick(); });
+    dlg.showModal();
+  });
 }
 
 const obj = (props, req = Object.keys(props)) => ({ type: 'object', additionalProperties: false, required: req, properties: props });
@@ -201,6 +299,11 @@ const ESQUEMA_CV = obj({
   })),
   formacion: arr(obj({ titulo: str, institucion: str, fecha: str })),
   capacitaciones: arr(obj({ nombre: str, institucion: str, horas: str, fecha: str })),
+});
+
+const ESQUEMA_BUSQUEDA = obj({
+  convocatorias: arr(obj({ entidad: str, titulo: str, url: str, fechaLimite: str, monto: str, requisitosClave: str, compatibilidad: str, motivo: str })),
+  notas: str,
 });
 
 const ESQUEMA_CLASIFICACION = obj({
@@ -233,7 +336,8 @@ Object.assign(IA, {
   async extraerCV(config, fuente, esEmpresa) {
     const bloques = IA.bloquesBases(fuente).map((b) => (b.type === 'text' ? { ...b, text: b.text.replace(/<\/?bases>/g, '') } : { ...b, title: fuente.pdfNombre || 'CV' }));
     if (!bloques.length) throw new Error('Sube el CV en PDF o Word.');
-    return llamarJson(config, {
+    return ejecutarJson(config, {
+      titulo: 'Leer CV y separar experiencias',
       bloques,
       esquema: ESQUEMA_CV,
       pedido: `El documento anterior es el ${esEmpresa ? 'currículum / portafolio de experiencia de una EMPRESA' : 'currículum vitae de un PROFESIONAL'}.
@@ -246,7 +350,8 @@ Extrae los datos del titular y separa CADA experiencia laboral o contrato como u
   },
 
   async clasificarExperiencias(config, { fuente, contexto, experiencias, definicion }) {
-    const r = await llamarJson(config, {
+    const r = await ejecutarJson(config, {
+      titulo: 'Clasificar experiencias',
       bloques: IA.bloquesBases(fuente),
       esquema: ESQUEMA_CLASIFICACION,
       pedido: `Clasifica cada experiencia como "especifica", "general" o "no_aplica" para este procedimiento, según las definiciones de experiencia de las bases / términos de referencia.
@@ -265,7 +370,8 @@ Devuelve un resultado por cada id, con un motivo breve que cite el criterio de l
 
   async llenarAnexo(config, { fuente, contexto, parrafos, titulo }) {
     const lista = parrafos.map((x, i) => ({ i, t: x.texto, celda: x.enTabla || undefined })).filter((x) => x.t.trim() || x.celda);
-    return llamarJson(config, {
+    return ejecutarJson(config, {
+      titulo: `Llenar anexo: ${titulo}`,
       bloques: IA.bloquesBases(fuente),
       esquema: ESQUEMA_LLENADO,
       maxTokens: 64000,
@@ -289,7 +395,8 @@ Reglas:
   async extraerAnexos(config, { fuente, contexto }) {
     const bloques = IA.bloquesBases(fuente);
     if (!bloques.length) throw new Error('Sube el PDF de las bases o pega su texto en la pestaña "Bases".');
-    const r = await llamarJson(config, {
+    const r = await ejecutarJson(config, {
+      titulo: 'Extraer y llenar anexos',
       bloques,
       esquema: ESQUEMA_ANEXOS,
       maxTokens: 64000,
@@ -308,7 +415,8 @@ Reglas:
   async evaluarCumplimiento(config, { fuente, contexto, perfil }) {
     const bloques = IA.bloquesBases(fuente);
     if (!bloques.length) throw new Error('Sube el TDR / bases en PDF o Word, o pega su texto.');
-    return llamarJson(config, {
+    return ejecutarJson(config, {
+      titulo: '¿Cumplo con los requisitos?',
       bloques,
       esquema: ESQUEMA_CUMPLIMIENTO,
       pedido: `Evalúa si el postor cumple los requisitos del documento anterior (términos de referencia / bases).
@@ -328,7 +436,6 @@ Revisa uno por uno los requisitos del perfil exigido (formación, colegiatura/ha
 
   // Búsqueda web de convocatorias (menores a 8 UIT u otras) compatibles con un perfil.
   async buscarConvocatorias(config, { perfil, consulta, topeSoles }) {
-    const client = IA.cliente();
     const model = config.modelo || 'claude-opus-5';
     const herramienta = model === 'claude-haiku-4-5'
       ? { type: 'web_search_20250305', name: 'web_search', max_uses: 10, user_location: { type: 'approximate', country: 'PE' } }
@@ -344,6 +451,15 @@ ${JSON.stringify(perfil, null, 1)}
 Al terminar, responde SOLO con un bloque \`\`\`json con este formato:
 {"convocatorias":[{"entidad":"","titulo":"","url":"","fechaLimite":"","monto":"","requisitosClave":"","compatibilidad":"alta|media|baja","motivo":""}],"notas":""}
 Incluye solo convocatorias con enlace real encontrado en la búsqueda; no inventes enlaces. Si no encuentras vigentes, devuelve la lista vacía y explica en "notas" dónde buscar.`;
+    if (IA.modo() === 'plan') {
+      const texto = await pedirAClaude({ titulo: 'Buscar convocatorias menores a 8 UIT', bloques: [], pedido: pedido + '\n\nUsa la búsqueda web para encontrarlas.' });
+      try {
+        return completarSegunEsquema(extraerJson(texto), ESQUEMA_BUSQUEDA);
+      } catch (e) {
+        return { convocatorias: [], notas: texto };
+      }
+    }
+    const client = IA.cliente();
     const base = IA.parametros(config);
     const messages = [{ role: 'user', content: pedido }];
     for (let vuelta = 0; vuelta < 5; vuelta++) {

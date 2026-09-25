@@ -31,9 +31,15 @@ Los datos se guardan solo en tu navegador. Usa **Descargar respaldo** con frecue
 
 Los archivos (CV, certificados, anexos, membrete) se guardan en el navegador (IndexedDB). El respaldo `.json` guarda los datos, no los archivos.
 
-## IA (opcional)
+## IA: con tu plan de Claude (sin costo extra) o con API
 
-En **Configuración**, pega una API key de Anthropic (https://console.anthropic.com). Las llamadas van directo del navegador a `api.anthropic.com` y se cobran en tu cuenta.
+- **Con mi plan de Claude** (predeterminado). Cuando pides algo con IA, la app abre una ventana con 3 pasos:
+  1. copias el pedido;
+  2. lo pegas en claude.ai, adjuntando el PDF si te lo indica;
+  3. pegas la respuesta de Claude en la app y ella carga los datos sola.
+
+  Usa los límites de tu plan Pro o Max, sin pagos adicionales.
+- **Automático con API key** (opcional, en Configuración). Todo ocurre dentro de la app, pero la API se paga aparte en https://console.anthropic.com.
 
 ## Aviso
 

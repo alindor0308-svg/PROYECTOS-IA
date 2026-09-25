@@ -21,7 +21,7 @@ function estadoInicial() {
     docsEmpresa: [],
     membrete: { docxId: '', docxNombre: '', pdfId: '', pdfNombre: '' },
     oportunidades: { perfil: 'empresa', tdrTexto: '', resultado: null, consulta: '', busqueda: null },
-    config: { modelo: 'claude-opus-5', esfuerzo: 'high', recordarKey: false, uit: 5500 },
+    config: { modoIA: 'plan', modelo: 'claude-opus-5', esfuerzo: 'high', recordarKey: false, uit: 5500 },
   };
 }
 
@@ -436,11 +436,20 @@ function vEmpresa() {
 
 function vConfig() {
   const key = leerApiKey();
+  const api = state.config.modoIA === 'api';
   return `
   <section class="tarjeta">
-    <h2>Asistente con IA (opcional)</h2>
-    <p class="ayuda">Con una API key de Anthropic, la app puede leer las bases (PDF o texto), extraer requisitos y cronograma, redactar borradores de la propuesta técnica y revisar tu oferta como lo haría el comité. Sin API key todo lo demás funciona igual.</p>
-    <p class="ayuda">Obtén una key en <a href="https://console.anthropic.com/" target="_blank" rel="noopener">console.anthropic.com</a>. El uso se cobra en tu cuenta de Anthropic según los tokens consumidos.</p>
+    <h2>Asistente con IA (Claude)</h2>
+    <p class="ayuda">La IA lee tu CV y las bases, llena anexos, te dice si cumples los requisitos y redacta la propuesta técnica. Elige cómo usarla:</p>
+    <label class="opcion-modo ${!api ? 'activo' : ''}"><input type="radio" name="modoIA" data-bind="config.modoIA" value="plan" data-rerender ${!api ? 'checked' : ''}>
+      <span><strong>Con mi plan de Claude (sin costo extra)</strong><br>
+      <small>La app arma el pedido; lo pegas en claude.ai (con tu cuenta Pro/Max), adjuntas el archivo si hace falta y pegas la respuesta de vuelta. Usa los límites de uso de tu plan.</small></span></label>
+    <label class="opcion-modo ${api ? 'activo' : ''}"><input type="radio" name="modoIA" data-bind="config.modoIA" value="api" data-rerender ${api ? 'checked' : ''}>
+      <span><strong>Automático con API key</strong><br>
+      <small>Todo ocurre dentro de la app, sin copiar y pegar. La API se paga aparte en console.anthropic.com (no está incluida en el plan de Claude).</small></span></label>
+  </section>
+  ${api ? `<section class="tarjeta">
+    <h2>API key</h2>
     <div class="grid">
       <label class="campo doble"><span>API key</span><input type="password" id="api-key" value="${esc(key)}" placeholder="sk-ant-..." autocomplete="off"></label>
       ${selector('config.modelo', 'Modelo', MODELOS_IA)}
@@ -449,7 +458,10 @@ function vConfig() {
     ${casilla('config.recordarKey', 'Recordar la API key en este navegador (si no, se borra al cerrarlo)')}
     <div class="fila"><button class="btn primario" data-action="guardar-key">Guardar API key</button>
       <button class="btn" data-action="borrar-key">Borrar API key</button></div>
-    <p class="alerta info">La key se guarda solo en este navegador y se envía únicamente a api.anthropic.com. No uses esta app con tu key en computadoras compartidas.</p>
+    ${key ? '' : '<p class="alerta warn">Sin API key, la app usa el modo "con mi plan de Claude".</p>'}
+    <p class="alerta info">La key se guarda solo en este navegador y se envía únicamente a api.anthropic.com.</p>
+  </section>` : ''}
+  <section class="tarjeta">
     <h3>Contrataciones menores</h3>
     <div class="grid">${campo('config.uit', 'Valor de la UIT vigente (S/)', { tipo: 'number' })}</div>
     <p class="ayuda">Se usa para calcular el tope de 8 UIT. Verifica el valor oficial del año.</p>
@@ -493,7 +505,7 @@ function tabBases(p, b) {
     </div>
     ${area(b + '.basesTexto', 'O pega aquí el texto de las bases / términos de referencia / expediente técnico', { filas: 8 })}
     <div class="fila">
-      <button class="btn primario" data-action="analizar" ${ocupado ? 'disabled' : ''}>${ocupado ? 'Analizando… (puede tardar 1-3 min)' : '✨ Analizar bases con IA'}</button>
+      <button class="btn primario" data-action="analizar" ${ocupado ? 'disabled' : ''}>${ocupado ? (IA.modo() === 'plan' ? '⏳ Esperando la respuesta de Claude…' : 'Analizando… (puede tardar 1-3 min)') : '✨ Analizar bases con IA'}</button>
       ${IA.disponible() ? '' : '<span class="ayuda">Requiere API key en <a href="#" data-action="ir" data-pagina="config">Configuración</a>.</span>'}
     </div>
   </section>
@@ -952,7 +964,7 @@ const acciones = {
       p.analisis = await IA.analizarBases(state.config, fuenteIA(p));
       guardar();
     } catch (e) {
-      alert('No se pudo analizar: ' + IA.describirError(e));
+      if (IA.describirError(e)) alert('No se pudo analizar: ' + IA.describirError(e));
     } finally {
       delete iaOcupada[clave];
       render();
@@ -1010,7 +1022,7 @@ const acciones = {
       });
       guardar();
     } catch (e) {
-      alert('No se pudo revisar: ' + IA.describirError(e));
+      if (IA.describirError(e)) alert('No se pudo revisar: ' + IA.describirError(e));
     } finally {
       delete iaOcupada[clave];
       render();
@@ -1061,7 +1073,7 @@ async function redactarSeccion(p, s) {
     return true;
   } catch (e) {
     s.contenido = anterior;
-    alert(`No se pudo redactar "${s.titulo}": ` + IA.describirError(e));
+    if (IA.describirError(e)) alert(`No se pudo redactar "${s.titulo}": ` + IA.describirError(e));
     return false;
   } finally {
     delete iaOcupada[clave];
