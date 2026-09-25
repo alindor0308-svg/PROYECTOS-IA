@@ -18,7 +18,10 @@ function estadoInicial() {
     personal: [],
     equipos: [],
     procesos: [],
-    config: { modelo: 'claude-opus-5', esfuerzo: 'high', recordarKey: false },
+    docsEmpresa: [],
+    membrete: { docxId: '', docxNombre: '', pdfId: '', pdfNombre: '' },
+    oportunidades: { perfil: 'empresa', tdrTexto: '', resultado: null, consulta: '', busqueda: null },
+    config: { modelo: 'claude-opus-5', esfuerzo: 'high', recordarKey: false, uit: 5500 },
   };
 }
 
@@ -28,11 +31,22 @@ function cargar() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return base;
     const s = JSON.parse(raw);
-    return {
+    const r = {
       ...base, ...s,
       empresa: { ...base.empresa, ...s.empresa, rnpCapitulos: { ...base.empresa.rnpCapitulos, ...(s.empresa || {}).rnpCapitulos } },
+      membrete: { ...base.membrete, ...s.membrete },
+      oportunidades: { ...base.oportunidades, ...s.oportunidades },
       config: { ...base.config, ...s.config },
     };
+    // Completa campos agregados en versiones posteriores.
+    r.experiencia.forEach((x) => { x.archivos = x.archivos || []; });
+    r.personal.forEach((x) => { x.experiencias = x.experiencias || []; x.documentos = x.documentos || []; });
+    r.procesos.forEach((p) => {
+      const n = nuevoProceso(p.tipoObjeto);
+      ['anexos', 'estructura', 'clasif', 'opcionesExpediente', 'perfilEval', 'cumplimiento', 'defExperiencia']
+        .forEach((k) => { if (p[k] === undefined) p[k] = n[k]; });
+    });
+    return r;
   } catch (e) {
     return base;
   }
@@ -196,6 +210,12 @@ function nuevoProceso(tipo) {
     tecnica: (SECCIONES_TECNICAS[tipo] || []).map((titulo) => ({ id: uid(), titulo, contenido: '', instrucciones: '' })),
     experienciaSel: [], personalSel: [], equiposSel: [],
     basesTexto: '', analisis: null, revision: '',
+    anexos: [], estructura: [], clasif: {}, defExperiencia: '',
+    perfilEval: 'empresa', cumplimiento: null,
+    opcionesExpediente: {
+      indice: true, folioPos: 'sup-der', folioFormato: 'Folio {n}', folioInicio: 1, folioDigitos: 4,
+      folioOrden: 'asc', margenSupCm: 4, margenInfCm: 3,
+    },
   };
 }
 
@@ -377,32 +397,27 @@ function vEmpresa() {
     </div>
     <div class="fila">${Object.entries(NOMBRE_CAPITULO).map(([k, t]) => casilla(`${e}.rnpCapitulos.${k}`, t)).join('')}</div>
   </section>
+  ${seccionMembrete()}
   <section class="tarjeta">
     <h2>Experiencia del postor</h2>
-    <p class="ayuda">Contratos ejecutados que puedes acreditar (contrato + conformidad o comprobantes de pago). Luego eliges cuáles presentar en cada proceso.</p>
+    <p class="ayuda">Contratos ejecutados que puedes acreditar (contrato + conformidad o comprobantes de pago). Adjunta los sustentos (PDF o imagen) en cada fila; luego eliges cuáles presentar en cada proceso.</p>
+    ${botonImportarCV('cv-empresa', 'Importar experiencia desde CV / portafolio de la empresa')}
     <div class="tabla-scroll"><table class="tabla editable">
-      <thead><tr><th>Cliente / entidad</th><th>Objeto del contrato</th><th>Tipo</th><th>Especialidad / subespecialidad</th><th class="num">Monto (S/)</th><th>Fecha conformidad</th><th>Sustento</th><th></th></tr></thead>
+      <thead><tr><th>Cliente / entidad</th><th>Objeto del contrato</th><th>Tipo</th><th>Especialidad / subespecialidad</th><th class="num">Monto (S/)</th><th>Inicio</th><th>Fin / conformidad</th><th>N.° contrato / acta</th><th>Archivos</th><th></th></tr></thead>
       <tbody>${state.experiencia.map((x, i) => filaLista('experiencia', i, [
         celda(`experiencia.${i}.cliente`), celda(`experiencia.${i}.objeto`),
         `<select class="celda" data-bind="experiencia.${i}.tipo">${Object.entries(TIPOS_OBJETO).map(([k, t]) => `<option value="${k}" ${x.tipo === k ? 'selected' : ''}>${t}</option>`).join('')}</select>`,
         celda(`experiencia.${i}.especialidad`), celda(`experiencia.${i}.monto`, { tipo: 'number' }),
-        celda(`experiencia.${i}.fecha`, { tipo: 'date' }), celda(`experiencia.${i}.sustento`, { extra: 'placeholder="Contrato N.°, acta..."' }),
+        celda(`experiencia.${i}.inicio`, { tipo: 'date' }), celda(`experiencia.${i}.fecha`, { tipo: 'date' }),
+        celda(`experiencia.${i}.sustento`, { extra: 'placeholder="Contrato N.°, acta..."' }), chipsArchivos(`experiencia.${i}.archivos`),
       ])).join('')}</tbody>
-      <tfoot><tr><td colspan="4">Total acreditable</td><td class="num">${dinero(totalExp)}</td><td colspan="3"></td></tr></tfoot>
+      <tfoot><tr><td colspan="4">Total acreditable</td><td class="num">${dinero(totalExp)}</td><td colspan="5"></td></tr></tfoot>
     </table></div>
     <button class="btn" data-action="agregar" data-lista="experiencia">+ Agregar contrato</button>
   </section>
   <section class="tarjeta">
     <h2>Personal clave</h2>
-    <div class="tabla-scroll"><table class="tabla editable">
-      <thead><tr><th>Nombre completo</th><th>DNI</th><th>Profesión</th><th>N.° colegiatura</th><th>Cargo habitual</th><th class="num">Años exp.</th><th>Experiencia relevante</th><th></th></tr></thead>
-      <tbody>${state.personal.map((x, i) => filaLista('personal', i, [
-        celda(`personal.${i}.nombre`), celda(`personal.${i}.dni`), celda(`personal.${i}.profesion`),
-        celda(`personal.${i}.colegiatura`), celda(`personal.${i}.cargo`), celda(`personal.${i}.anios`, { tipo: 'number' }),
-        celda(`personal.${i}.detalle`),
-      ])).join('')}</tbody>
-    </table></div>
-    <button class="btn" data-action="agregar" data-lista="personal">+ Agregar profesional</button>
+    <p class="ayuda">Los profesionales, sus CV, experiencias y documentos se gestionan en <a href="#" data-action="ir" data-pagina="profesionales">Profesionales</a>.</p>
   </section>
   <section class="tarjeta">
     <h2>Equipamiento</h2>
@@ -415,7 +430,8 @@ function vEmpresa() {
       ])).join('')}</tbody>
     </table></div>
     <button class="btn" data-action="agregar" data-lista="equipos">+ Agregar equipo</button>
-  </section>`;
+  </section>
+  ${seccionDocsEmpresa()}`;
 }
 
 function vConfig() {
@@ -434,6 +450,9 @@ function vConfig() {
     <div class="fila"><button class="btn primario" data-action="guardar-key">Guardar API key</button>
       <button class="btn" data-action="borrar-key">Borrar API key</button></div>
     <p class="alerta info">La key se guarda solo en este navegador y se envía únicamente a api.anthropic.com. No uses esta app con tu key en computadoras compartidas.</p>
+    <h3>Contrataciones menores</h3>
+    <div class="grid">${campo('config.uit', 'Valor de la UIT vigente (S/)', { tipo: 'number' })}</div>
+    <p class="ayuda">Se usa para calcular el tope de 8 UIT. Verifica el valor oficial del año.</p>
     <p class="alerta warn">La IA puede equivocarse. Verifica siempre contra las bases integradas antes de presentar: una omisión puede dejar tu oferta como no admitida.</p>
   </section>`;
 }
@@ -442,8 +461,14 @@ function vProceso() {
   const i = state.procesos.findIndex((p) => p.id === vista.procesoId);
   if (i < 0) { vista.pagina = 'inicio'; return vInicio(); }
   const p = state.procesos[i];
-  const tabs = { bases: '1. Bases', resumen: '2. Datos y cronograma', requisitos: '3. Requisitos', economica: '4. Oferta económica', tecnica: '5. Propuesta técnica', documentos: '6. Anexos y exportar' };
-  const cuerpo = { bases: tabBases, resumen: tabResumen, requisitos: tabRequisitos, economica: tabEconomica, tecnica: tabTecnica, documentos: tabDocumentos }[vista.tab] || tabBases;
+  const tabs = {
+    bases: '1. Bases / TDR', resumen: '2. Datos', requisitos: '3. Requisitos', experiencia: '4. Experiencia',
+    anexos: '5. Anexos', economica: '6. Oferta económica', tecnica: '7. Propuesta técnica', expediente: '8. Expediente', documentos: 'Formatos propios',
+  };
+  const cuerpo = {
+    bases: tabBases, resumen: tabResumen, requisitos: tabRequisitos, experiencia: tabExperiencia, anexos: tabAnexos,
+    economica: tabEconomica, tecnica: tabTecnica, expediente: tabExpediente, documentos: tabDocumentos,
+  }[vista.tab] || tabBases;
   return `
   <div class="cabecera-proceso">
     <a href="#" data-action="ir" data-pagina="inicio">← Mis procesos</a>
@@ -463,8 +488,8 @@ function tabBases(p, b) {
     <h2>Bases del procedimiento</h2>
     <p class="ayuda">Descarga las bases integradas desde el SEACE / PLADICOP y súbelas aquí, o pega su texto. La IA extrae datos, cronograma, requisitos, factores de evaluación y alertas.</p>
     <div class="fila">
-      <label class="btn">📄 Subir PDF de las bases<input type="file" accept="application/pdf" id="subir-pdf" hidden></label>
-      ${pdf ? `<span class="etiqueta">${esc(pdf.nombre)} (${(pdf.base64.length * 0.75 / 1048576).toFixed(1)} MB) <button class="btn-link" data-action="quitar-pdf">quitar</button></span>` : '<span class="ayuda">El PDF se usa solo durante esta sesión (no se guarda).</span>'}
+      <label class="btn">📄 Subir bases / TDR (PDF o Word)<input type="file" accept="application/pdf,.docx" id="subir-pdf" hidden></label>
+      ${pdf ? `<span class="etiqueta">${esc(pdf.nombre)} (${(pdf.base64.length * 0.75 / 1048576).toFixed(1)} MB) <button class="btn-link" data-action="quitar-pdf">quitar</button></span>` : '<span class="ayuda">El PDF se usa solo durante esta sesión (no se guarda). Un Word se convierte a texto abajo.</span>'}
     </div>
     ${area(b + '.basesTexto', 'O pega aquí el texto de las bases / términos de referencia / expediente técnico', { filas: 8 })}
     <div class="fila">
@@ -495,7 +520,8 @@ function tabBases(p, b) {
     ${a.penalidades ? `<h3>Penalidades</h3><p>${esc(a.penalidades)}</p>` : ''}
     <p class="ayuda">${a.requisitos.length} requisitos y ${a.cronograma.length} etapas de cronograma detectados.</p>
     <button class="btn primario" data-action="aplicar-analisis">Aplicar al proceso (datos, cronograma y requisitos)</button>
-  </section>` : ''}`;
+  </section>` : ''}
+  ${seccionCumplimiento(p, b)}`;
 }
 
 function tabResumen(p, b) {
@@ -830,8 +856,12 @@ function contextoIA(p) {
       razonSocial: e.razonSocial, ruc: e.ruc, mype: e.mype, rnpVigencia: e.rnpVigencia,
       capitulosRNP: Object.keys(e.rnpCapitulos).filter((k) => e.rnpCapitulos[k]).map((k) => NOMBRE_CAPITULO[k]),
       capacidadMaxContratacion: e.capacidadMaxContratacion,
-      experiencia: exp.map(({ id, ...x }) => x),
-      personalClave: per.map(({ id, ...x }) => x),
+      experiencia: exp.map(({ id, archivos, ...x }) => ({ ...x, clasificacion: (p.clasif || {})[id] || '' })),
+      personalClave: per.map(({ id, documentos, ...x }) => ({
+        ...x,
+        documentos: (documentos || []).map((d) => d.nombre),
+        experiencias: (x.experiencias || []).map(({ archivos, ...e }) => ({ ...e, meses: mesesEntre(e.inicio, e.fin), clasificacion: (p.clasif || {})[e.id] || '' })),
+      })),
       equipamiento: eq.map(({ id, ...x }) => x),
     },
     ofertaEconomica: { montoTotal: t.total, porcentajeDelVR: t.pctVR },
@@ -1083,6 +1113,7 @@ document.addEventListener('change', (ev) => {
   if (el.id === 'importar-json') return importarJson(el);
   if (el.id === 'subir-pdf') return subirPdf(el);
   if (el.id === 'importar-csv') return importarCsv(el);
+  if (el.dataset.subir) return subirArchivo(el);
   alCambiar(ev);
 });
 
@@ -1128,6 +1159,15 @@ async function subirPdf(input) {
     input.value = '';
     return;
   }
+  input.value = '';
+  if (/\.docx$/i.test(f.name)) {
+    const p = procesoActual();
+    const texto = await textoDeDocx(f);
+    p.basesTexto = (p.basesTexto ? p.basesTexto + '\n\n' : '') + texto;
+    guardar();
+    render();
+    return;
+  }
   const dataUrl = await leerArchivo(f, true);
   pdfEnMemoria[vista.procesoId] = { nombre: f.name, base64: dataUrl.slice(dataUrl.indexOf(',') + 1) };
   render();
@@ -1155,7 +1195,7 @@ async function importarCsv(input) {
 
 function render() {
   const app = document.getElementById('app');
-  const vistas = { inicio: vInicio, empresa: vEmpresa, config: vConfig, proceso: vProceso };
+  const vistas = { inicio: vInicio, empresa: vEmpresa, config: vConfig, proceso: vProceso, profesionales: vProfesionales, oportunidades: vOportunidades };
   // Conserva el foco y la posición del cursor si el usuario estaba escribiendo.
   const activo = document.activeElement;
   const bind = activo && activo.dataset && activo.dataset.bind;
@@ -1173,4 +1213,4 @@ function render() {
   }
 }
 
-render();
+document.addEventListener('DOMContentLoaded', render);

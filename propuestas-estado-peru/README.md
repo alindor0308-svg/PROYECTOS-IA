@@ -16,6 +16,21 @@ App web local para preparar ofertas a procedimientos de selección del Estado pe
 
 Los datos se guardan solo en tu navegador. Usa **Descargar respaldo** con frecuencia.
 
+## Flujo con CV, anexos y expediente foliado
+
+1. **Profesionales → Importar CV con IA** (PDF o Word): separa cada experiencia con entidad, cargo, proyecto y fechas. Adjunta a cada experiencia su certificado o constancia (PDF o imagen) y sube títulos, colegiatura y habilidad como documentos. En **Mi empresa** puedes hacer lo mismo con el portafolio de la empresa.
+2. **Mi empresa → Hoja membretada**: súbela en Word (y opcionalmente en PDF para que el PDF final salga idéntico).
+3. En cada proceso:
+   - **Bases / TDR → ¿Cumplo?**: compara el TDR con tu CV o la empresa, requisito por requisito.
+   - **Experiencia**: marca cada experiencia como *específica* o *general* (a mano o con IA). Calcula meses sin traslapes y montos.
+   - **Anexos**: sube los anexos en Word y la IA los llena respetando el formato de la entidad. Si vienen dentro del PDF de las bases, la IA los transcribe, los llena y los genera con tu membrete. Luego sube la versión firmada en PDF.
+   - **Expediente**: arma la estructura (separadores, anexos, experiencia específica y general, documentos) o usa la sugerida, y genera:
+     - **PDF único foliado** con índice (folio arriba o abajo, ascendente o descendente);
+     - **ZIP con carpetas**: una por separador, con los separadores y anexos en Word y los sustentos originales.
+4. **Oportunidades**: evalúa rápidamente un TDR contra tu perfil o busca en internet convocatorias vigentes menores a 8 UIT compatibles con tu CV. La búsqueda es referencial: no reemplaza revisar el SEACE / PLADICOP.
+
+Los archivos (CV, certificados, anexos, membrete) se guardan en el navegador (IndexedDB). El respaldo `.json` guarda los datos, no los archivos.
+
 ## IA (opcional)
 
 En **Configuración**, pega una API key de Anthropic (https://console.anthropic.com). Las llamadas van directo del navegador a `api.anthropic.com` y se cobran en tu cuenta.
@@ -24,4 +39,4 @@ En **Configuración**, pega una API key de Anthropic (https://console.anthropic.
 
 Los formatos y requisitos son referenciales. Revisa siempre las bases integradas y la normativa vigente antes de presentar.
 
-`vendor/anthropic-sdk.js` es el SDK oficial `@anthropic-ai/sdk` (licencia MIT), empaquetado para el navegador.
+Librerías incluidas en `vendor/`: `@anthropic-ai/sdk` (MIT, empaquetado para navegador), `pdf-lib` (MIT), `JSZip` (MIT) y `mammoth` (BSD-2).
