@@ -10,14 +10,16 @@ Ya trae cargadas las O/C **000062** (S/ 21,663.87, 69 ítems) y **000063** (S/ 2
 
 ## Cómo usarla
 
-1. Descarga la carpeta `inventario-almacen` y abre `index.html` con doble clic (Chrome o Edge). No se instala nada.
-2. **Órdenes → Nueva O/C**: registra cada O/C que recibes.
+1. Descarga `Inventario-Almacen.html` (en la raíz del repositorio) y ábrelo con doble clic en Chrome o Edge. No se instala nada. También puedes abrir `index.html` de esta carpeta.
+2. **Panel**: montos por entregar, valor del stock, compras y entregas del periodo, avance de cada O/C, materiales con más valor y gráfico semanal. Pasa el mouse por los gráficos para ver los montos.
+3. **Empresa y respaldo**: nombre, RUC, almacén y **logo** (sale en el menú, las actas y los reportes). El botón de abajo del menú cambia entre **modo claro y oscuro**.
+4. **Órdenes → Nueva O/C**: registra cada O/C que recibes.
    - Para O/C largas: «Leer la O/C escaneada con Claude» → copia las instrucciones, pégalas en claude.ai con el PDF y pega la respuesta. La app avisa si la suma no cuadra con el total de la O/C.
    - También puedes pegar filas desde Excel o copiadas del PDF.
-3. **Por comprar**: lo que falta comprar para cumplir todas las O/C abiertas, descontando el stock. Se puede imprimir para cotizar.
-4. **Registrar compra**: cuando llega el material, regístralo con proveedor, factura y costo.
-5. **O/C → Registrar entrega**: indica cuánto entregas; descuenta el stock, actualiza lo pendiente e imprime el **acta de entrega** para que firmen.
-6. **Stock**: existencias, costo promedio y valor. Cada material tiene su **kardex**. Usa **Conteo físico** una vez al mes para cuadrar con lo real.
+5. **Por comprar**: lo que falta comprar para cumplir todas las O/C abiertas, descontando el stock. Se puede imprimir para cotizar.
+6. **Registrar compra**: cuando llega el material, regístralo con proveedor, factura y costo.
+7. **O/C → Registrar entrega**: indica cuánto entregas; descuenta el stock, actualiza lo pendiente e imprime el **acta de entrega** para que firmen.
+8. **Stock**: existencias, costo promedio y valor. Cada material tiene su **kardex**. Usa **Conteo físico** una vez al mes para cuadrar con lo real.
 
 ## Reglas que aplica la app
 
@@ -31,3 +33,5 @@ Ya trae cargadas las O/C **000062** (S/ 21,663.87, 69 ítems) y **000063** (S/ 2
 Los datos se guardan solo en ese navegador y en esa computadora. En **Respaldo** descarga el archivo `.json` cada semana (USB, Drive o correo). Con ese archivo restauras todo en otra computadora.
 
 Los reportes se exportan a Excel como CSV (separado por comas y con punto decimal).
+
+Si cambias el código, vuelve a generar el archivo único con `python3 inventario-almacen/herramienta-empaquetar.py`.

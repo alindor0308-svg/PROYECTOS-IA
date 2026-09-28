@@ -195,22 +195,72 @@ const barra = (p) => `<div class="barra" title="${fmt(p * 100, 0)}%"><i style="w
 // ---------- Enrutador ----------
 
 const vistas = {};
+const acciones = {};
+const formularios = {};
 let alMontar = null;
 
 function render() {
   const [ruta, ...args] = (location.hash.slice(1) || 'resumen').split('/').map(decodeURIComponent);
   const vista = vistas[ruta] || vistas.resumen;
   alMontar = null;
+  ocultarTip();
   $('#app').innerHTML = vista(...args);
-  $('#empresa-nombre').textContent = `${db.empresa.nombre} · ${db.empresa.almacen}`;
-  $$('nav a').forEach((a) => a.classList.toggle('activo', a.getAttribute('href') === '#' + ruta));
+  pintarMarca();
+  const activa = { orden: 'ordenes', 'nueva-orden': 'ordenes', 'editar-orden': 'ordenes', entrega: 'ordenes', kardex: 'stock', material: 'stock', conteo: 'stock', 'nuevo-mov': 'movimientos' }[ruta] || ruta;
+  $$('#menu a').forEach((a) => a.classList.toggle('activo', a.getAttribute('href') === '#' + (vistas[activa] ? activa : 'resumen')));
+  $('#lateral').classList.remove('abierto');
   if (alMontar) alMontar();
   window.scrollTo(0, 0);
 }
 window.addEventListener('hashchange', render);
 
-const acciones = {};
-const formularios = {};
+function iniciales(nombre) {
+  const palabras = String(nombre || '').replace(/S\.?A\.?C\.?|E\.?I\.?R\.?L\.?|S\.?R\.?L\.?|S\.?A\.?/g, '').split(/\s+/).filter((p) => p.length > 2);
+  return (palabras.slice(0, 2).map((p) => p[0]).join('') || 'AL').toUpperCase();
+}
+
+function pintarMarca() {
+  $('#empresa-nombre').textContent = db.empresa.nombre;
+  $('#empresa-almacen').textContent = db.empresa.almacen;
+  const logo = $('#logo');
+  if (db.empresa.logo) logo.innerHTML = `<img src="${esc(db.empresa.logo)}" alt="Logo de ${esc(db.empresa.nombre)}">`;
+  else logo.textContent = iniciales(db.empresa.nombre);
+  document.title = `Inventario · ${db.empresa.nombre}`;
+  const oscuro = temaActual() === 'dark';
+  $('#boton-tema').innerHTML = `${icono(oscuro ? 'sol' : 'luna')}<span class="tema-texto">${oscuro ? 'Modo claro' : 'Modo oscuro'}</span>`;
+}
+
+function temaActual() {
+  const t = document.documentElement.dataset.theme;
+  if (t) return t;
+  return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+acciones.tema = () => {
+  const nuevo = temaActual() === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = nuevo;
+  try { localStorage.setItem('inventario-tema', nuevo); } catch (e) { /* sin almacenamiento */ }
+  pintarMarca();
+};
+acciones.menu = () => $('#lateral').classList.toggle('abierto');
+
+formularios.buscar = (f) => {
+  const q = f.elements.q.value.trim();
+  if (!q) return;
+  const o = db.ordenes.find((x) => norm(x.numero) === norm(q) || norm(x.numero).replace(/^0+/, '') === norm(q).replace(/^0+/, ''));
+  if (o) {
+    location.hash = '#orden/' + o.id;
+  } else if (db.materiales.some((m) => norm(m.codigo + ' ' + m.descripcion).includes(norm(q)))) {
+    filtroStock.texto = q;
+    filtroStock.modo = '';
+    location.hash === '#stock' ? render() : (location.hash = '#stock');
+  } else {
+    filtroMov.texto = q;
+    location.hash === '#movimientos' ? render() : (location.hash = '#movimientos');
+  }
+  f.elements.q.value = '';
+};
+
 document.addEventListener('click', (ev) => {
   const b = ev.target.closest('[data-accion]');
   if (!b || !acciones[b.dataset.accion]) return;
@@ -243,35 +293,174 @@ vistas.resumen = () => {
   const abiertas = estados.filter(({ e }) => e.estado === 'Pendiente' || e.estado === 'Parcial');
   const valorStock = [...calc.mats.values()].reduce((a, s) => a + Math.max(0, s.valor), 0);
   const bajoMinimo = db.materiales.filter((m) => m.minimo > 0 && (calc.mats.get(m.id)?.stock || 0) < m.minimo);
-  const porComprar = listaPorComprar(calc);
   const negativos = db.materiales.filter((m) => calc.mats.get(m.id)?.negativo);
-  const porEntregar = abiertas.reduce((a, { e }) => a + e.total - e.totalEntregado, 0);
+  const f = franjaOrdenes(abiertas, calc);
+  const sem = semanasPanel(periodoPanel);
+  const compraPeriodo = sem.compras.reduce((a, v) => a + v, 0);
+  const entregaPeriodo = sem.entregas.reduce((a, v) => a + v, 0);
+  const cuenta = (est) => estados.filter(({ e }) => e.estado === est).length;
+  const vencidas = estados.filter(({ e }) => e.vencida).length;
+
+  const avance = estados.filter(({ e }) => e.estado !== 'Cerrada')
+    .sort((a, b) => (b.o.fecha || '').localeCompare(a.o.fecha || '') || b.o.numero.localeCompare(a.o.numero)).slice(0, 8);
+  const topStock = db.materiales.map((m) => ({ m, s: calc.mats.get(m.id) })).filter(({ s }) => s.valor > EPS)
+    .sort((a, b) => b.s.valor - a.s.valor).slice(0, 8);
+
+  const segmentos = [
+    { nombre: 'Entregado', valor: f.entregado, color: 'var(--s-azul)', tinta: '#ffffff' },
+    { nombre: 'Listo en almacén', valor: f.listo, color: 'var(--s-aqua)', tinta: '#0f1a17' },
+    { nombre: 'Falta comprar', valor: f.porComprar, color: 'var(--s-naranja)', tinta: '#1d120c' },
+  ];
+  const totalFranja = f.entregado + f.listo + f.porComprar;
 
   return `
-    <h1>Resumen</h1>
+    <div class="fila"><h1 class="titulo-panel">Panel de almacén</h1><span class="espacio"></span>
+      <a class="btn" href="#compra">+ Registrar compra</a>
+      <a class="btn primario" href="#nueva-orden">+ Nueva O/C</a></div>
     ${negativos.length ? `<p class="alerta error">Hay materiales que quedaron con stock negativo en algún momento (${negativos.map((m) => esc(m.codigo)).join(', ')}). Revisa sus kardex: probablemente falta registrar una compra o la fecha de un movimiento está mal.</p>` : ''}
-    <div class="tarjetas">
-      <a class="tarjeta" href="#ordenes" style="text-decoration:none;color:inherit"><b>${abiertas.length}</b><span>O/C por entregar · ${soles(porEntregar)}</span></a>
-      <a class="tarjeta" href="#por-comprar" style="text-decoration:none;color:inherit"><b>${porComprar.length}</b><span>materiales por comprar para cumplir las O/C</span></a>
-      <a class="tarjeta" href="#stock" style="text-decoration:none;color:inherit"><b>${soles(valorStock)}</b><span>valor del stock en almacén (costo promedio)</span></a>
-      <a class="tarjeta" href="#stock" style="text-decoration:none;color:inherit"><b>${bajoMinimo.length}</b><span>materiales bajo su stock mínimo</span></a>
+    <div class="fila" style="margin-bottom:12px">
+      <label style="display:flex;gap:8px;align-items:center">Periodo
+        <select id="periodo-panel" style="width:auto;margin:0">
+          ${[[4, 'Últimas 4 semanas'], [8, 'Últimas 8 semanas'], [12, 'Últimas 12 semanas'], [26, 'Últimos 6 meses'], [52, 'Último año']]
+            .map(([v, t]) => `<option value="${v}" ${v === periodoPanel ? 'selected' : ''}>${t}</option>`).join('')}
+        </select></label>
     </div>
     <div class="panel">
-      <div class="fila"><h2 style="margin:0">Órdenes por entregar</h2><span class="espacio"></span>
-        <a class="btn" href="#nueva-orden">+ Nueva O/C</a></div>
+      <div class="kpis">
+        <a class="kpi" href="#ordenes"><span class="icono-kpi">${icono('camion')}</span><div><b>${soles(totalFranja - f.entregado)}</b><span>Por entregar · ${abiertas.length} O/C</span></div></a>
+        <a class="kpi" href="#stock"><span class="icono-kpi">${icono('caja')}</span><div><b>${soles(valorStock)}</b><span>Valor del stock</span></div></a>
+        <a class="kpi" href="#movimientos"><span class="icono-kpi">${icono('tendencia')}</span><div><b>${soles(entregaPeriodo)}</b><span>Entregado en el periodo</span></div></a>
+        <a class="kpi" href="#movimientos"><span class="icono-kpi">${icono('dinero')}</span><div><b>${soles(compraPeriodo)}</b><span>Comprado en el periodo</span></div></a>
+      </div>
+      ${totalFranja > EPS ? `
+        <div class="franja" role="img" aria-label="Avance de las O/C abiertas">
+          ${segmentos.filter((s) => s.valor > EPS).map((s) => {
+            const pct = (s.valor / totalFranja) * 100;
+            return `<div style="width:${pct}%;background:${s.color};color:${s.tinta}" ${tipAttr({ t: s.nombre, f: [[soles(s.valor), fmt(pct, 0) + '% de las O/C abiertas', s.color]] })}>
+              ${pct >= 14 ? `<small>${s.nombre}</small><b>${soles(s.valor)}</b>` : ''}</div>`;
+          }).join('')}
+        </div>
+        <div class="leyenda">${segmentos.map((s) => `<span><i style="background:${s.color}"></i>${s.nombre}: <b>${soles(s.valor)}</b></span>`).join('')}</div>` : ''}
+    </div>
+
+    <div class="rejilla-3">
+      <div class="panel">
+        <div class="cabecera-grafico"><h2>Avance de entrega por O/C</h2></div>
+        ${graficoBarrasH(avance.map(({ o, e }) => ({
+          etiqueta: `O/C ${o.numero} · ${o.entidad}`,
+          valor: e.avance * 100,
+          texto: fmt(e.avance * 100, 0) + '%',
+          enlace: '#orden/' + o.id,
+          tip: { t: `O/C ${o.numero} · ${e.estado}${e.vencida ? ' · vencida' : ''}`, f: [[soles(e.totalEntregado), 'entregado', 'var(--s-azul)'], [soles(e.total), 'total de la O/C', '']] },
+        })), { max: 100 })}
+        ${tablaDatos(['O/C', 'Avance', 'Entregado', 'Total'], avance.map(({ o, e }) => [o.numero, fmt(e.avance * 100, 0) + '%', soles(e.totalEntregado), soles(e.total)]))}
+      </div>
+      <div class="panel">
+        <div class="cabecera-grafico"><h2>Materiales con más valor en stock</h2></div>
+        ${graficoBarrasH(topStock.map(({ m, s }) => ({
+          etiqueta: m.descripcion,
+          valor: s.valor,
+          texto: soles(s.valor),
+          enlace: '#kardex/' + m.id,
+          tip: { t: m.descripcion, f: [[soles(s.valor), 'valor', 'var(--s-azul)'], [`${cant(s.stock)} ${m.unidad}`, 'en stock', '']] },
+        })))}
+        ${topStock.length ? tablaDatos(['Material', 'Stock', 'Valor'], topStock.map(({ m, s }) => [m.descripcion, `${cant(s.stock)} ${m.unidad}`, soles(s.valor)])) : ''}
+      </div>
+      <div class="panel">
+        <div class="cabecera-grafico"><h2>Estado de las órdenes</h2></div>
+        <div class="estados">
+          <a class="estado-oc" href="#ordenes"><b>${cuenta('Pendiente')}</b><span class="etiqueta e-azul">Pendientes</span></a>
+          <a class="estado-oc" href="#ordenes"><b>${cuenta('Parcial')}</b><span class="etiqueta e-ambar">Parciales</span></a>
+          <a class="estado-oc" href="#ordenes"><b>${cuenta('Entregada')}</b><span class="etiqueta e-verde">✔ Entregadas</span></a>
+          <a class="estado-oc" href="#ordenes"><b>${vencidas}</b><span class="etiqueta e-rojo">⚠ Vencidas</span></a>
+        </div>
+        <p class="suave" style="margin-bottom:0">${bajoMinimo.length ? `<a href="#stock">${bajoMinimo.length} material(es) bajo su stock mínimo</a> · ` : ''}<a href="#por-comprar">Ver lista por comprar</a></p>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="cabecera-grafico"><h2>Compras y entregas por semana</h2><span class="espacio"></span><span class="suave">Soles · compras a costo, entregas a precio de la O/C</span></div>
+      ${graficoLineas({
+        etiquetas: sem.etiquetas,
+        titulos: sem.titulos,
+        series: [
+          { nombre: 'Entregas', color: 'var(--s-azul)', valores: sem.entregas },
+          { nombre: 'Compras', color: 'var(--s-aqua)', valores: sem.compras },
+        ],
+        formato: soles,
+      })}
+      <div class="leyenda"><span><i class="linea" style="background:var(--s-azul)"></i>Entregas</span><span><i class="linea" style="background:var(--s-aqua)"></i>Compras</span></div>
+      ${tablaDatos(['Semana', 'Entregas', 'Compras'], sem.titulos.map((t, i) => [t, soles(sem.entregas[i]), soles(sem.compras[i])]))}
+    </div>
+
+    <div class="panel">
+      <h2 class="sin-margen">Órdenes por entregar</h2>
       ${abiertas.length ? tablaOrdenes(abiertas) : '<p class="suave">No hay órdenes pendientes de entrega.</p>'}
     </div>
-    <div class="panel">
-      <h2 style="margin-top:0">Cómo se usa</h2>
+    <details class="panel">
+      <summary>Cómo se usa</summary>
       <ol>
         <li><b>Registra cada O/C</b> que te llega (Órdenes → Nueva O/C). Puedes pegar los ítems o pedirle a Claude que lea el PDF escaneado.</li>
         <li><b>Mira «Por comprar»</b>: te dice qué falta comprar para cumplir las O/C, descontando lo que ya tienes en almacén.</li>
-        <li><b>Cuando llegue la compra</b>, regístrala como <b>entrada</b> con su factura o boleta y su costo.</li>
+        <li><b>Cuando llegue la compra</b>, regístrala en «Registrar compra» con su factura o boleta y su costo.</li>
         <li><b>Cuando entregues a la entidad</b>, entra a la O/C → «Registrar entrega» con el N° de guía de remisión. La app descuenta el stock, marca lo pendiente e imprime el acta de entrega.</li>
         <li>Si algo regresa al almacén usa <b>Devolución</b>; si el conteo físico no cuadra usa <b>Conteo físico</b> (en Stock). Nada se borra: los errores se anulan con motivo.</li>
       </ol>
-    </div>`;
+    </details>`;
 };
+
+let periodoPanel = 12;
+document.addEventListener('change', (ev) => {
+  if (ev.target.id !== 'periodo-panel') return;
+  periodoPanel = Number(ev.target.value);
+  render();
+});
+
+// Reparte el stock entre las O/C abiertas (de la más antigua a la más nueva) para saber qué ya se puede entregar.
+function franjaOrdenes(abiertas, calc) {
+  const resto = new Map([...calc.mats].map(([id, s]) => [id, Math.max(0, s.stock)]));
+  let entregado = 0;
+  let listo = 0;
+  let porComprar = 0;
+  for (const { o, e } of [...abiertas].sort((a, b) => ordenCrono(a.o, b.o))) {
+    entregado += e.totalEntregado;
+    for (const it of e.items) {
+      const disponible = Math.min(it.pendiente, resto.get(it.materialId) || 0);
+      resto.set(it.materialId, (resto.get(it.materialId) || 0) - disponible);
+      listo += disponible * it.pu;
+      porComprar += (it.pendiente - disponible) * it.pu;
+    }
+  }
+  return { entregado, listo, porComprar };
+}
+
+// Suma compras (a costo) y entregas (a precio de la O/C) por semana, de lunes a domingo.
+function semanasPanel(n) {
+  const lunes = new Date(hoy() + 'T12:00:00');
+  lunes.setDate(lunes.getDate() - ((lunes.getDay() + 6) % 7) - 7 * (n - 1));
+  const inicio = lunes.toISOString().slice(0, 10);
+  const etiquetas = [];
+  const titulos = [];
+  for (let i = 0; i < n; i++) {
+    const a = sumarDias(inicio, i * 7);
+    const b = sumarDias(a, 6);
+    etiquetas.push(a.slice(8, 10) + '/' + a.slice(5, 7));
+    titulos.push(`Semana del ${fechaPe(a)} al ${fechaPe(b)}`);
+  }
+  const compras = new Array(n).fill(0);
+  const entregas = new Array(n).fill(0);
+  for (const mv of db.movimientos) {
+    if (mv.anulado || !mv.fecha || mv.fecha < inicio) continue;
+    const i = Math.floor((new Date(mv.fecha + 'T12:00:00') - new Date(inicio + 'T12:00:00')) / (7 * 864e5));
+    if (i < 0 || i >= n) continue;
+    if (mv.tipo === 'ENTRADA') compras[i] += num(mv.cantidad) * num(mv.costo);
+    if ((mv.tipo === 'SALIDA' || mv.tipo === 'DEVOLUCION') && mv.ordenId) {
+      const it = orden(mv.ordenId)?.items.find((x) => x.materialId === mv.materialId);
+      if (it) entregas[i] += (mv.tipo === 'SALIDA' ? 1 : -1) * num(mv.cantidad) * it.pu;
+    }
+  }
+  return { etiquetas, titulos, compras: compras.map((v) => redondear(v, 2)), entregas: entregas.map((v) => redondear(v, 2)) };
+}
 
 function tablaOrdenes(lista) {
   return `<div class="tabla-envoltura"><table>
@@ -1274,12 +1463,21 @@ acciones['imprimir-kardex'] = (b) => {
 // ---------- Respaldo y configuración ----------
 
 vistas.config = () => `
-  <h1>Respaldo y datos de la empresa</h1>
+  <h1>Empresa y respaldo</h1>
   <form data-form="empresa" class="panel">
     <div class="campos">
       <label>Empresa<input name="nombre" value="${esc(db.empresa.nombre)}"></label>
       <label>RUC<input name="ruc" value="${esc(db.empresa.ruc)}"></label>
       <label>Nombre del almacén<input name="almacen" value="${esc(db.empresa.almacen)}"></label>
+      <div class="ancho">
+        <label>Logo de la empresa (PNG o JPG)</label>
+        <div class="fila" style="margin-top:4px">
+          <span class="logo" style="width:64px;height:64px">${db.empresa.logo ? `<img src="${esc(db.empresa.logo)}" alt="">` : esc(iniciales(db.empresa.nombre))}</span>
+          <label class="btn" style="color:var(--texto)">Subir logo<input type="file" id="archivo-logo" accept="image/*" hidden></label>
+          ${db.empresa.logo ? '<button type="button" class="btn peligro" data-accion="quitar-logo">Quitar logo</button>' : ''}
+          <span class="suave">Aparece en el menú, en las actas de entrega y en los reportes impresos.</span>
+        </div>
+      </div>
     </div>
     <div class="fila fin" style="margin-top:10px"><button class="btn primario">Guardar</button></div>
   </form>
@@ -1303,7 +1501,34 @@ vistas.config = () => `
 
 formularios.empresa = (f) => {
   const d = Object.fromEntries(new FormData(f));
-  db.empresa = { nombre: d.nombre.trim(), ruc: d.ruc.trim(), almacen: d.almacen.trim() || 'Almacén principal' };
+  db.empresa = { ...db.empresa, nombre: d.nombre.trim(), ruc: d.ruc.trim(), almacen: d.almacen.trim() || 'Almacén principal' };
+  guardar();
+  render();
+};
+
+// El logo se reduce a 256 px para que quepa en el almacenamiento del navegador.
+document.addEventListener('change', async (ev) => {
+  if (ev.target.id !== 'archivo-logo' || !ev.target.files[0]) return;
+  try {
+    const url = URL.createObjectURL(ev.target.files[0]);
+    const img = new Image();
+    await new Promise((ok, mal) => { img.onload = ok; img.onerror = mal; img.src = url; });
+    const escala = Math.min(1, 256 / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.width * escala);
+    c.height = Math.round(img.height * escala);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(url);
+    db.empresa.logo = c.toDataURL('image/png');
+    guardar();
+    render();
+  } catch (e) {
+    alert('No se pudo leer esa imagen. Prueba con un PNG o JPG.');
+  }
+});
+
+acciones['quitar-logo'] = () => {
+  delete db.empresa.logo;
   guardar();
   render();
 };
@@ -1346,7 +1571,7 @@ acciones['borrar-todo'] = () => {
 // ---------- Impresión y descargas ----------
 
 function cabeceraImpresion(titulo) {
-  return `<div style="display:flex;justify-content:space-between"><div><b>${esc(db.empresa.nombre)}</b><br>RUC ${esc(db.empresa.ruc)} · ${esc(db.empresa.almacen)}</div><div>Fecha: ${fechaPe(hoy())}</div></div>
+  return `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px">${db.empresa.logo ? `<img class="logo-impresion" src="${esc(db.empresa.logo)}" alt="">` : ''}<div style="flex:1"><b>${esc(db.empresa.nombre)}</b><br>RUC ${esc(db.empresa.ruc)} · ${esc(db.empresa.almacen)}</div><div>Fecha: ${fechaPe(hoy())}</div></div>
     <h2 style="text-align:center">${titulo}</h2>`;
 }
 
@@ -1424,5 +1649,7 @@ function descargarCsv(nombre, filas) {
 
 // ---------- Inicio ----------
 
+$$('[data-icono]').forEach((el) => el.insertAdjacentHTML('afterbegin', icono(el.dataset.icono)));
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', pintarMarca);
 document.body.insertAdjacentHTML('beforeend', `<datalist id="dl-unidades">${UNIDADES.map((u) => `<option value="${u}">`).join('')}</datalist>`);
 render();

@@ -4,60 +4,100 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Inventario de Almacén</title>
+  <script>
+    // Aplica el tema guardado antes de pintar para evitar el parpadeo.
+    try { const t = localStorage.getItem('inventario-tema'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
   <style>
+/* ---------- Tema: claro por defecto, oscuro por sistema o por el botón ---------- */
 :root {
-  --fondo: #f4f6f9;
+  color-scheme: light;
+  --fondo: #f2f4f7;
   --panel: #ffffff;
-  --texto: #1d2733;
-  --suave: #5b6878;
-  --borde: #d8dee6;
-  --primario: #0b5cad;
+  --panel-2: #f7f8fa;
+  --lateral: #ffffff;
+  --texto: #1b2430;
+  --suave: #5d6b7a;
+  --tenue: #8a95a3;
+  --borde: #e2e6ec;
+  --primario: #0e8f80;
   --primario-texto: #ffffff;
-  --rojo: #b42318;
+  --primario-suave: #dff5f1;
+  --rojo: #c0362c;
   --rojo-fondo: #fdecea;
   --ambar: #8a5a00;
   --ambar-fondo: #fff4d6;
-  --azul-fondo: #e8f1fb;
+  --azul-fondo: #e7f0fb;
+  --azul-texto: #1d5fae;
   --verde: #1e7a3c;
   --verde-fondo: #e6f4ea;
+  --sombra: 0 1px 2px rgba(16, 24, 40, .05), 0 1px 3px rgba(16, 24, 40, .06);
+  /* Series de gráficos (validadas para daltonismo sobre este fondo) */
+  --s-azul: #2a78d6;
+  --s-aqua: #1baf7a;
+  --s-naranja: #eb6834;
+  --grilla: #e9ecf0;
+  --eje: #c6ccd4;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --fondo: #12161c;
-    --panel: #1b2129;
-    --texto: #e3e8ee;
-    --suave: #9aa6b4;
-    --borde: #313a46;
-    --primario: #4c9be8;
-    --primario-texto: #0b1420;
+    --fondo: #1f2125;
+    --panel: #2a2d33;
+    --panel-2: #24272c;
+    --lateral: #25272c;
+    --texto: #eef1f4;
+    --suave: #a7b0bc;
+    --tenue: #818b98;
+    --borde: #3a3e46;
+    --primario: #3cc9b6;
+    --primario-texto: #0b1f1c;
+    --primario-suave: #1f3d3a;
     --rojo: #f28b82;
-    --rojo-fondo: #3a1c1a;
+    --rojo-fondo: #3d2222;
     --ambar: #f2c46d;
-    --ambar-fondo: #33290f;
-    --azul-fondo: #16273a;
+    --ambar-fondo: #3a3120;
+    --azul-fondo: #1f2e42;
+    --azul-texto: #8fbdf2;
     --verde: #81c995;
-    --verde-fondo: #15291c;
+    --verde-fondo: #1d3326;
+    --sombra: none;
+    --s-azul: #3987e5;
+    --s-aqua: #199e70;
+    --s-naranja: #d95926;
+    --grilla: #34383f;
+    --eje: #4a4f58;
   }
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --fondo: #12161c;
-  --panel: #1b2129;
-  --texto: #e3e8ee;
-  --suave: #9aa6b4;
-  --borde: #313a46;
-  --primario: #4c9be8;
-  --primario-texto: #0b1420;
+  --fondo: #1f2125;
+  --panel: #2a2d33;
+  --panel-2: #24272c;
+  --lateral: #25272c;
+  --texto: #eef1f4;
+  --suave: #a7b0bc;
+  --tenue: #818b98;
+  --borde: #3a3e46;
+  --primario: #3cc9b6;
+  --primario-texto: #0b1f1c;
+  --primario-suave: #1f3d3a;
   --rojo: #f28b82;
-  --rojo-fondo: #3a1c1a;
+  --rojo-fondo: #3d2222;
   --ambar: #f2c46d;
-  --ambar-fondo: #33290f;
-  --azul-fondo: #16273a;
+  --ambar-fondo: #3a3120;
+  --azul-fondo: #1f2e42;
+  --azul-texto: #8fbdf2;
   --verde: #81c995;
-  --verde-fondo: #15291c;
+  --verde-fondo: #1d3326;
+  --sombra: none;
+  --s-azul: #3987e5;
+  --s-aqua: #199e70;
+  --s-naranja: #d95926;
+  --grilla: #34383f;
+  --eje: #4a4f58;
 }
 
 * { box-sizing: border-box; }
@@ -69,161 +109,289 @@ body {
   background: var(--fondo);
   color: var(--texto);
   line-height: 1.45;
+  display: flex;
+  min-height: 100vh;
 }
 
-header {
-  background: var(--panel);
-  border-bottom: 1px solid var(--borde);
-  padding: 10px 16px;
+svg.icono { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------- Menú lateral ---------- */
+#lateral {
+  width: 240px;
+  flex: none;
+  background: var(--lateral);
+  border-right: 1px solid var(--borde);
+  padding: 18px 14px;
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px 20px;
-  align-items: center;
+  flex-direction: column;
+  gap: 18px;
   position: sticky;
   top: 0;
-  z-index: 5;
+  height: 100vh;
 }
 
-.marca { font-weight: 700; font-size: 17px; }
-.marca small { display: block; font-weight: 400; font-size: 12px; color: var(--suave); }
-
-nav { display: flex; flex-wrap: wrap; gap: 4px; }
-nav a {
-  color: var(--texto);
-  text-decoration: none;
-  padding: 6px 10px;
-  border-radius: 6px;
+.marca { display: flex; gap: 10px; align-items: center; text-decoration: none; color: var(--texto); }
+.logo {
+  width: 46px; height: 46px; border-radius: 12px; flex: none;
+  display: grid; place-items: center; overflow: hidden;
+  background: var(--primario); color: var(--primario-texto);
+  font-weight: 800; font-size: 17px; letter-spacing: .5px;
 }
-nav a:hover { background: var(--azul-fondo); }
-nav a.activo { background: var(--primario); color: var(--primario-texto); }
+.logo img { width: 100%; height: 100%; object-fit: contain; background: #fff; }
+.marca-texto b { display: block; font-size: 14px; line-height: 1.2; }
+.marca-texto small { display: block; font-size: 12px; color: var(--suave); }
 
-main { max-width: 1250px; margin: 0 auto; padding: 16px; }
+#menu { display: flex; flex-direction: column; gap: 4px; }
+#menu a {
+  display: flex; gap: 12px; align-items: center;
+  color: var(--suave); text-decoration: none;
+  padding: 10px 12px; border-radius: 10px; font-weight: 500;
+}
+#menu a:hover { background: var(--panel-2); color: var(--texto); }
+#menu a.activo { background: var(--primario); color: var(--primario-texto); }
 
-h1 { font-size: 22px; margin: 4px 0 12px; }
-h2 { font-size: 17px; margin: 20px 0 8px; }
+.tema {
+  margin-top: auto;
+  display: flex; gap: 10px; align-items: center; justify-content: center;
+  font: inherit; color: var(--texto);
+  background: var(--panel-2); border: 1px solid var(--borde);
+  border-radius: 10px; padding: 9px 12px; cursor: pointer;
+}
+.tema:hover { border-color: var(--primario); }
+.btn-menu { display: none; }
+
+/* ---------- Contenido ---------- */
+#contenido { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.barra-superior { display: flex; justify-content: flex-end; padding: 16px 24px 0; }
+.buscador {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--panel); border: 1px solid var(--borde); border-radius: 10px;
+  padding: 0 12px; width: min(380px, 100%); color: var(--tenue);
+}
+.buscador input { border: 0; background: transparent; margin: 0; padding: 9px 0; outline: none; }
+
+main { width: 100%; max-width: 1320px; margin: 0 auto; padding: 8px 24px 16px; }
+
+h1 { font-size: 22px; margin: 4px 0 14px; letter-spacing: .3px; }
+h1.titulo-panel { text-transform: uppercase; font-size: 24px; }
+h2 { font-size: 16px; margin: 20px 0 10px; }
 
 .panel {
   background: var(--panel);
   border: 1px solid var(--borde);
-  border-radius: 8px;
-  padding: 14px;
-  margin-bottom: 14px;
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 16px;
+  box-shadow: var(--sombra);
 }
+.panel > h2:first-child, .panel h2.sin-margen { margin-top: 0; }
 
 .fila { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .fila.fin { justify-content: flex-end; }
 .espacio { flex: 1; }
 
 .btn {
-  font: inherit;
-  padding: 7px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--borde);
-  background: var(--panel);
-  color: var(--texto);
-  cursor: pointer;
-  text-decoration: none;
-  display: inline-block;
-  white-space: nowrap;
+  font: inherit; padding: 8px 14px; border-radius: 8px;
+  border: 1px solid var(--borde); background: var(--panel); color: var(--texto);
+  cursor: pointer; text-decoration: none; display: inline-block; white-space: nowrap;
 }
 .btn:hover { border-color: var(--primario); }
-.btn.primario { background: var(--primario); color: var(--primario-texto); border-color: var(--primario); }
+.btn.primario { background: var(--primario); color: var(--primario-texto); border-color: var(--primario); font-weight: 600; }
 .btn.peligro { color: var(--rojo); }
-.btn.chico { padding: 3px 8px; font-size: 13px; }
+.btn.chico { padding: 3px 9px; font-size: 13px; }
 
-.campos {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: 10px 14px;
-}
+.campos { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px 14px; }
 label { display: block; font-size: 13px; color: var(--suave); }
 .ancho { grid-column: 1 / -1; }
 input, select, textarea {
-  font: inherit;
-  width: 100%;
-  padding: 6px 8px;
-  border: 1px solid var(--borde);
-  border-radius: 6px;
-  background: var(--panel);
-  color: var(--texto);
-  margin-top: 2px;
+  font: inherit; width: 100%; padding: 7px 9px;
+  border: 1px solid var(--borde); border-radius: 8px;
+  background: var(--panel); color: var(--texto); margin-top: 2px;
 }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--primario); outline-offset: -1px; }
 textarea { min-height: 90px; }
 td input, td select { margin: 0; padding: 4px 6px; }
 input.num { text-align: right; }
 
 .tabla-envoltura { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; background: var(--panel); }
-th, td { padding: 6px 8px; border-bottom: 1px solid var(--borde); text-align: left; vertical-align: top; }
-th { font-size: 12px; text-transform: uppercase; color: var(--suave); background: var(--fondo); position: sticky; top: 0; }
-td.n, th.n { text-align: right; white-space: nowrap; }
-tr.anulado td { text-decoration: line-through; color: var(--suave); }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 8px; border-bottom: 1px solid var(--borde); text-align: left; vertical-align: top; }
+th { font-size: 12px; text-transform: uppercase; color: var(--suave); background: var(--panel-2); position: sticky; top: 0; letter-spacing: .3px; }
+td.n, th.n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+tr.anulado td { text-decoration: line-through; color: var(--tenue); }
 tfoot td { font-weight: 700; }
 
-.tarjetas { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-bottom: 14px; }
-.tarjeta { background: var(--panel); border: 1px solid var(--borde); border-radius: 8px; padding: 12px; }
+.tarjetas { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.tarjeta { background: var(--panel); border: 1px solid var(--borde); border-radius: 14px; padding: 14px; box-shadow: var(--sombra); }
 .tarjeta b { display: block; font-size: 22px; }
 .tarjeta span { color: var(--suave); font-size: 13px; }
 
-.etiqueta { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 10px; white-space: nowrap; }
+.etiqueta { display: inline-block; font-size: 12px; padding: 2px 9px; border-radius: 10px; white-space: nowrap; font-weight: 600; vertical-align: middle; }
 .e-verde { background: var(--verde-fondo); color: var(--verde); }
 .e-ambar { background: var(--ambar-fondo); color: var(--ambar); }
 .e-rojo { background: var(--rojo-fondo); color: var(--rojo); }
-.e-azul { background: var(--azul-fondo); color: var(--primario); }
+.e-azul { background: var(--azul-fondo); color: var(--azul-texto); }
 
-.alerta { padding: 10px 12px; border-radius: 6px; margin: 8px 0; }
+.alerta { padding: 10px 12px; border-radius: 8px; margin: 8px 0; }
 .alerta.error { background: var(--rojo-fondo); color: var(--rojo); }
 .alerta.aviso { background: var(--ambar-fondo); color: var(--ambar); }
 .alerta.info { background: var(--azul-fondo); }
 .alerta.ok { background: var(--verde-fondo); color: var(--verde); }
+#aviso-guardado { margin: 12px 24px 0; }
 
-.barra { height: 8px; background: var(--borde); border-radius: 4px; overflow: hidden; min-width: 80px; }
-.barra i { display: block; height: 100%; background: var(--verde); }
+.barra { height: 8px; background: var(--grilla); border-radius: 4px; overflow: hidden; min-width: 80px; }
+.barra i { display: block; height: 100%; background: var(--s-azul); border-radius: 4px; }
 
 .suave { color: var(--suave); }
 .rojo { color: var(--rojo); }
 .verde { color: var(--verde); }
 a { color: var(--primario); }
-
 details summary { cursor: pointer; font-weight: 600; }
 
-footer { text-align: center; color: var(--suave); font-size: 12px; padding: 20px 16px; }
+footer { text-align: center; color: var(--tenue); font-size: 12px; padding: 20px 16px; margin-top: auto; }
+
+/* ---------- Panel principal ---------- */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+.kpi { display: flex; gap: 12px; align-items: center; text-decoration: none; color: var(--texto); padding: 6px; border-radius: 10px; }
+a.kpi:hover { background: var(--panel-2); }
+.kpi .icono-kpi { width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; background: var(--primario-suave); color: var(--primario); flex: none; }
+.kpi .icono-kpi svg.icono { width: 26px; height: 26px; }
+.kpi b { display: block; font-size: 22px; line-height: 1.15; }
+.kpi span { font-size: 13px; color: var(--suave); font-weight: 600; }
+
+.franja { display: flex; height: 58px; border-radius: 10px; overflow: hidden; gap: 2px; background: var(--panel); margin-top: 16px; }
+.franja > div { min-width: 0; padding: 8px 12px; color: #fff; display: flex; flex-direction: column; justify-content: center; }
+.franja b { font-size: 16px; white-space: nowrap; }
+.franja small { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: .95; }
+
+.leyenda { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--suave); margin: 8px 0 0; }
+.leyenda i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.leyenda i.linea { height: 3px; width: 16px; border-radius: 2px; vertical-align: 3px; }
+
+.rejilla-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.rejilla-3 > .panel { margin-bottom: 16px; }
+.cabecera-grafico { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.cabecera-grafico h2 { margin: 0; }
+.cabecera-grafico .espacio + * { margin-left: auto; }
+
+.grafico svg { display: block; width: 100%; height: auto; overflow: visible; }
+.grafico text { fill: var(--suave); font-size: 12px; font-family: inherit; }
+.grafico text.valor { fill: var(--texto); font-weight: 600; font-variant-numeric: tabular-nums; }
+.grafico .grilla { stroke: var(--grilla); stroke-width: 1; }
+.grafico .eje { stroke: var(--eje); stroke-width: 1; }
+.grafico [data-tip] { cursor: default; }
+.grafico rect[data-tip]:hover, .grafico rect[data-tip]:focus { filter: brightness(1.15); outline: none; }
+.grafico .cruz { stroke: var(--tenue); stroke-width: 1; }
+.vacio-grafico { color: var(--tenue); text-align: center; padding: 36px 8px; }
+
+.estados { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.estado-oc { border: 1px solid var(--borde); border-radius: 10px; padding: 10px; text-decoration: none; color: var(--texto); }
+.estado-oc:hover { border-color: var(--primario); }
+.estado-oc b { display: block; font-size: 26px; }
+
+details.datos { margin-top: 10px; font-size: 13px; }
+details.datos summary { font-weight: 500; color: var(--suave); }
+
+#tooltip {
+  position: fixed; z-index: 50; pointer-events: none;
+  background: var(--panel); color: var(--texto);
+  border: 1px solid var(--borde); border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .18);
+  padding: 8px 10px; font-size: 13px; min-width: 140px;
+}
+#tooltip .tt-titulo { color: var(--suave); margin-bottom: 4px; }
+#tooltip .tt-fila { display: flex; align-items: center; gap: 8px; }
+#tooltip .tt-fila i { width: 12px; height: 3px; border-radius: 2px; flex: none; }
+#tooltip .tt-fila b { font-variant-numeric: tabular-nums; }
+#tooltip .tt-fila span { color: var(--suave); }
 
 #imprimir { display: none; }
 
 @media print {
   body.imprimiendo > *:not(#imprimir) { display: none !important; }
-  body.imprimiendo { background: #fff; color: #000; font-size: 12px; }
+  body.imprimiendo { background: #fff; color: #000; font-size: 12px; display: block; }
   #imprimir { display: block; }
   #imprimir table { background: #fff; }
-  #imprimir th, #imprimir td { border: 1px solid #555; color: #000; background: #fff; padding: 3px 5px; }
+  #imprimir th, #imprimir td { border: 1px solid #555; color: #000; background: #fff; padding: 3px 5px; position: static; }
   #imprimir .firmas { display: flex; justify-content: space-around; margin-top: 70px; }
   #imprimir .firmas div { border-top: 1px solid #000; width: 35%; text-align: center; padding-top: 4px; }
+  #imprimir .logo-impresion { max-height: 60px; max-width: 160px; }
 }
 
-@media (max-width: 600px) {
-  main { padding: 12px 16px; }
-  header { position: static; }
+/* ---------- Pantallas medianas y celulares ---------- */
+@media (max-width: 1100px) {
+  .rejilla-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+@media (max-width: 900px) {
+  body { flex-direction: column; }
+  #lateral {
+    width: auto; height: auto; position: sticky; top: 0; z-index: 20;
+    flex-direction: row; flex-wrap: wrap; align-items: center; gap: 10px;
+    padding: 10px 16px; border-right: 0; border-bottom: 1px solid var(--borde);
+  }
+  .marca { flex: 1; min-width: 0; }
+  .btn-menu {
+    display: block; font: inherit; font-size: 20px; background: var(--panel-2); color: var(--texto);
+    border: 1px solid var(--borde); border-radius: 8px; padding: 4px 12px; cursor: pointer;
+  }
+  #menu { display: none; width: 100%; }
+  #lateral.abierto #menu { display: flex; }
+  .tema { margin-top: 0; order: 2; padding: 6px 10px; }
+  .tema .tema-texto { display: none; }
+  .barra-superior { padding: 12px 16px 0; }
+  main { padding: 8px 16px 16px; }
+  #aviso-guardado { margin: 12px 16px 0; }
+  .rejilla-3 { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 600px) {
+  .franja { height: auto; flex-direction: column; }
+  .franja > div { width: 100% !important; }
+}
+
+/* ---------- Barras horizontales ---------- */
+.barras-h { display: flex; flex-direction: column; gap: 10px; }
+.bh-fila { border-radius: 6px; outline: none; }
+.bh-fila:focus-visible { outline: 2px solid var(--primario); outline-offset: 2px; }
+.bh-etiqueta { font-size: 13px; color: var(--texto); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bh-etiqueta a { color: inherit; text-decoration: none; }
+.bh-etiqueta a:hover { text-decoration: underline; }
+.bh-pista { display: flex; align-items: center; gap: 8px; margin-top: 3px; }
+.bh-pista i { display: block; height: 14px; border-radius: 0 4px 4px 0; }
+.bh-fila:hover .bh-pista i { filter: brightness(1.15); }
+.bh-pista span { font-size: 13px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 </style>
 </head>
 <body>
-  <header>
-    <div class="marca">📦 Inventario de Almacén <small id="empresa-nombre"></small></div>
-    <nav>
-      <a href="#resumen">Resumen</a>
-      <a href="#ordenes">Órdenes</a>
-      <a href="#por-comprar">Por comprar</a>
-      <a href="#compra">Registrar compra</a>
-      <a href="#movimientos">Movimientos</a>
-      <a href="#stock">Stock</a>
-      <a href="#config">Respaldo</a>
+  <aside id="lateral">
+    <a class="marca" href="#resumen">
+      <span id="logo" class="logo"></span>
+      <span class="marca-texto"><b id="empresa-nombre"></b><small id="empresa-almacen"></small></span>
+    </a>
+    <button class="btn-menu" data-accion="menu" aria-label="Abrir menú">☰</button>
+    <nav id="menu">
+      <a href="#resumen" data-icono="inicio">Panel</a>
+      <a href="#ordenes" data-icono="ordenes">Órdenes</a>
+      <a href="#por-comprar" data-icono="carrito">Por comprar</a>
+      <a href="#compra" data-icono="entrada">Registrar compra</a>
+      <a href="#movimientos" data-icono="movimientos">Movimientos</a>
+      <a href="#stock" data-icono="caja">Stock</a>
+      <a href="#config" data-icono="ajustes">Empresa y respaldo</a>
     </nav>
-  </header>
-  <p id="aviso-guardado" class="alerta error" hidden>No se pudo guardar en este navegador. Descarga un respaldo en «Respaldo» para no perder tus datos.</p>
-  <main id="app"></main>
-  <footer>Los datos se guardan solo en este navegador y en esta computadora. Descarga un respaldo cada semana.</footer>
+    <button class="tema" data-accion="tema" id="boton-tema"></button>
+  </aside>
+  <div id="contenido">
+    <div class="barra-superior">
+      <form class="buscador" data-form="buscar" role="search">
+        <span data-icono="buscar"></span>
+        <input name="q" placeholder="Buscar material, O/C, factura…" autocomplete="off">
+      </form>
+    </div>
+    <p id="aviso-guardado" class="alerta error" hidden>No se pudo guardar en este navegador. Descarga un respaldo en «Empresa y respaldo» para no perder tus datos.</p>
+    <main id="app"></main>
+    <footer>Los datos se guardan solo en este navegador y en esta computadora. Descarga un respaldo cada semana.</footer>
+  </div>
+  <div id="tooltip" role="status" hidden></div>
   <div id="imprimir"></div>
   <script>
 'use strict';
@@ -336,6 +504,241 @@ const ORDENES_INICIALES = [
     ],
   },
 ];
+
+</script>
+  <script>
+'use strict';
+// Íconos, gráficos SVG/HTML sin librerías y tooltip compartido.
+
+const ICONOS = {
+  inicio: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
+  ordenes: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 2.5h6v3H9zM9 11h6M9 15h4"/>',
+  carrito: '<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 1.9-1.4L21 8H6.2"/>',
+  entrada: '<path d="M12 3v11M7.5 9.5 12 14l4.5-4.5"/><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/>',
+  movimientos: '<path d="M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/>',
+  caja: '<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/>',
+  ajustes: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  buscar: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
+  sol: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  luna: '<path d="M20.5 13.5A8.5 8.5 0 1 1 10.5 3.5a6.6 6.6 0 0 0 10 10z"/>',
+  dinero: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v5M18 9.5v5"/>',
+  camion: '<path d="M2.5 6h11v10h-11zM13.5 10h4l3 3.2V16h-7"/><circle cx="6.5" cy="18" r="1.8"/><circle cx="17" cy="18" r="1.8"/>',
+  tendencia: '<path d="m3 17 6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
+};
+
+function icono(nombre) {
+  return `<svg class="icono" viewBox="0 0 24 24" aria-hidden="true">${ICONOS[nombre] || ''}</svg>`;
+}
+
+const escG = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// Escala "bonita" para el eje Y.
+function maximoBonito(v) {
+  if (v <= 0) return 1;
+  const exp = 10 ** Math.floor(Math.log10(v));
+  for (const m of [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10]) if (m * exp >= v) return m * exp;
+  return 10 * exp;
+}
+
+function abreviar(n) {
+  const a = Math.abs(n);
+  if (a >= 1e6) return (n / 1e6).toLocaleString('es-PE', { maximumFractionDigits: 1 }) + ' M';
+  if (a >= 1e3) return (n / 1e3).toLocaleString('es-PE', { maximumFractionDigits: 1 }) + ' mil';
+  return n.toLocaleString('es-PE', { maximumFractionDigits: 0 });
+}
+
+// ---------- Tooltip ----------
+
+const tooltip = () => document.getElementById('tooltip');
+
+// datos = { t: título, f: [[valor, nombre, colorCss], ...] }. Se arma con textContent.
+function mostrarTip(datos, x, y) {
+  const tt = tooltip();
+  tt.replaceChildren();
+  if (datos.t) {
+    const t = document.createElement('div');
+    t.className = 'tt-titulo';
+    t.textContent = datos.t;
+    tt.appendChild(t);
+  }
+  for (const [valor, nombre, color] of datos.f || []) {
+    const fila = document.createElement('div');
+    fila.className = 'tt-fila';
+    if (color) {
+      const i = document.createElement('i');
+      i.style.background = color;
+      fila.appendChild(i);
+    }
+    const b = document.createElement('b');
+    b.textContent = valor;
+    fila.appendChild(b);
+    if (nombre) {
+      const s = document.createElement('span');
+      s.textContent = nombre;
+      fila.appendChild(s);
+    }
+    tt.appendChild(fila);
+  }
+  tt.hidden = false;
+  const r = tt.getBoundingClientRect();
+  let left = x + 14;
+  let top = y + 14;
+  if (left + r.width > innerWidth - 8) left = x - r.width - 14;
+  if (top + r.height > innerHeight - 8) top = y - r.height - 14;
+  tt.style.left = Math.max(8, left) + 'px';
+  tt.style.top = Math.max(8, top) + 'px';
+}
+
+function ocultarTip() {
+  const tt = tooltip();
+  if (tt) tt.hidden = true;
+}
+
+const tipAttr = (datos) => `data-tip="${escG(JSON.stringify(datos))}" tabindex="0"`;
+
+document.addEventListener('pointermove', (ev) => {
+  const capa = ev.target.closest?.('.capa-hover');
+  if (capa) return moverCruz(capa, ev.clientX, ev.clientY);
+  const el = ev.target.closest?.('[data-tip]');
+  if (el) mostrarTip(JSON.parse(el.dataset.tip), ev.clientX, ev.clientY);
+  else ocultarTip();
+});
+document.addEventListener('focusin', (ev) => {
+  const el = ev.target.closest?.('[data-tip]');
+  if (el) {
+    const r = el.getBoundingClientRect();
+    mostrarTip(JSON.parse(el.dataset.tip), r.right, r.top);
+  }
+});
+document.addEventListener('focusout', ocultarTip);
+document.addEventListener('scroll', ocultarTip, true);
+
+// ---------- Líneas en el tiempo (una sola escala) ----------
+
+const REGISTRO_GRAFICOS = {};
+let contadorGraficos = 0;
+
+// opciones: { etiquetas: [...], titulos: [...] (texto largo para el tooltip), series: [{ nombre, color, valores }], formato }
+function graficoLineas({ etiquetas, titulos, series, formato }) {
+  const id = 'g' + ++contadorGraficos;
+  const W = 900;
+  const H = 280;
+  const m = { l: 62, r: 96, t: 14, b: 30 };
+  const n = etiquetas.length;
+  const ancho = W - m.l - m.r;
+  const alto = H - m.t - m.b;
+  const max = maximoBonito(Math.max(0, ...series.flatMap((s) => s.valores)));
+  const x = (i) => m.l + (n <= 1 ? ancho / 2 : (i * ancho) / (n - 1));
+  const y = (v) => m.t + alto - (v / max) * alto;
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => f * max);
+  const cadaCuanto = Math.max(1, Math.ceil(n / 8));
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${escG(series.map((s) => s.nombre).join(' y '))} por periodo">`;
+  for (const t of ticks) {
+    svg += `<line class="${t === 0 ? 'eje' : 'grilla'}" x1="${m.l}" x2="${W - m.r}" y1="${y(t)}" y2="${y(t)}"/>`;
+    svg += `<text x="${m.l - 8}" y="${y(t) + 4}" text-anchor="end">${escG(abreviar(t))}</text>`;
+  }
+  etiquetas.forEach((e, i) => {
+    if (i % cadaCuanto === 0 || i === n - 1) svg += `<text x="${x(i)}" y="${H - 8}" text-anchor="middle">${escG(e)}</text>`;
+  });
+  // Áreas suaves y luego líneas de 2px.
+  for (const s of series) {
+    const pts = s.valores.map((v, i) => `${x(i)},${y(v)}`).join(' ');
+    svg += `<polygon points="${x(0)},${y(0)} ${pts} ${x(n - 1)},${y(0)}" fill="${s.color}" opacity="0.14"/>`;
+  }
+  for (const s of series) {
+    const pts = s.valores.map((v, i) => `${x(i)},${y(v)}`).join(' ');
+    svg += `<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  }
+  // Etiquetas directas al final de cada línea, separadas si chocan.
+  // Se ordenan de abajo hacia arriba y se suben para no chocar entre sí ni con el eje X.
+  const finales = series.map((s) => ({ s, yy: Math.min(y(s.valores[n - 1] || 0), y(0) - 8) })).sort((a, b) => b.yy - a.yy);
+  for (let i = 1; i < finales.length; i++) if (finales[i - 1].yy - finales[i].yy < 16) finales[i].yy = finales[i - 1].yy - 16;
+  for (const f of finales) svg += `<text x="${x(n - 1) + 10}" y="${f.yy + 4}">${escG(f.s.nombre)}</text>`;
+  // Capa de interacción: cruz vertical + puntos.
+  svg += `<line id="${id}-cruz" class="cruz" x1="0" x2="0" y1="${m.t}" y2="${m.t + alto}" visibility="hidden"/>`;
+  series.forEach((s, k) => {
+    svg += `<circle id="${id}-p${k}" r="5" fill="${s.color}" stroke="var(--panel)" stroke-width="2" visibility="hidden"/>`;
+  });
+  svg += `<rect class="capa-hover" data-id="${id}" x="${m.l - 10}" y="${m.t}" width="${ancho + 20}" height="${alto}" fill="transparent" tabindex="0"/>`;
+  svg += '</svg>';
+  REGISTRO_GRAFICOS[id] = { etiquetas, titulos: titulos || etiquetas, series, formato, x, y, n, W };
+  return `<div class="grafico">${svg}</div>`;
+}
+
+function moverCruz(capa, cx, cy, indice) {
+  const g = REGISTRO_GRAFICOS[capa.dataset.id];
+  if (!g) return;
+  const svg = capa.ownerSVGElement;
+  let i = indice;
+  if (i === undefined) {
+    const r = svg.getBoundingClientRect();
+    const vx = ((cx - r.left) / r.width) * g.W;
+    i = 0;
+    for (let k = 1; k < g.n; k++) if (Math.abs(g.x(k) - vx) < Math.abs(g.x(i) - vx)) i = k;
+  }
+  capa.dataset.i = i;
+  const id = capa.dataset.id;
+  const cruz = document.getElementById(id + '-cruz');
+  cruz.setAttribute('x1', g.x(i));
+  cruz.setAttribute('x2', g.x(i));
+  cruz.setAttribute('visibility', 'visible');
+  g.series.forEach((s, k) => {
+    const p = document.getElementById(`${id}-p${k}`);
+    p.setAttribute('cx', g.x(i));
+    p.setAttribute('cy', g.y(s.valores[i]));
+    p.setAttribute('visibility', 'visible');
+  });
+  mostrarTip({ t: g.titulos[i], f: g.series.map((s) => [g.formato(s.valores[i]), s.nombre, s.color]) }, cx, cy);
+}
+
+function ocultarCruz(capa) {
+  const id = capa.dataset.id;
+  const g = REGISTRO_GRAFICOS[id];
+  document.getElementById(id + '-cruz')?.setAttribute('visibility', 'hidden');
+  g?.series.forEach((s, k) => document.getElementById(`${id}-p${k}`)?.setAttribute('visibility', 'hidden'));
+  ocultarTip();
+}
+
+document.addEventListener('pointerout', (ev) => {
+  if (ev.target.classList?.contains('capa-hover')) ocultarCruz(ev.target);
+});
+document.addEventListener('focusin', (ev) => {
+  if (!ev.target.classList?.contains('capa-hover')) return;
+  const g = REGISTRO_GRAFICOS[ev.target.dataset.id];
+  const r = ev.target.getBoundingClientRect();
+  moverCruz(ev.target, r.right, r.top, g.n - 1);
+});
+document.addEventListener('keydown', (ev) => {
+  const capa = ev.target;
+  if (!capa.classList?.contains('capa-hover') || !['ArrowLeft', 'ArrowRight'].includes(ev.key)) return;
+  ev.preventDefault();
+  const g = REGISTRO_GRAFICOS[capa.dataset.id];
+  const i = Math.min(g.n - 1, Math.max(0, Number(capa.dataset.i || g.n - 1) + (ev.key === 'ArrowRight' ? 1 : -1)));
+  const r = capa.getBoundingClientRect();
+  moverCruz(capa, r.left + (g.x(i) / g.W) * r.width, r.top, i);
+});
+
+// ---------- Barras horizontales (una serie, un color) ----------
+
+// filas: [{ etiqueta, valor, texto, enlace, tip }]
+function graficoBarrasH(filas, { color = 'var(--s-azul)', max } = {}) {
+  if (!filas.length) return '<p class="vacio-grafico">Sin datos todavía.</p>';
+  const tope = max || Math.max(...filas.map((f) => f.valor)) || 1;
+  return `<div class="grafico barras-h">${filas.map((f) => `
+    <div class="bh-fila" ${tipAttr(f.tip || { t: f.etiqueta, f: [[f.texto, '', color]] })}>
+      <div class="bh-etiqueta">${f.enlace ? `<a href="${f.enlace}">${escG(f.etiqueta)}</a>` : escG(f.etiqueta)}</div>
+      <div class="bh-pista"><i style="width:${Math.max(0.5, (f.valor / tope) * 78)}%;background:${color}"></i><span>${escG(f.texto)}</span></div>
+    </div>`).join('')}</div>`;
+}
+
+// Tabla accesible con los mismos datos que un gráfico.
+function tablaDatos(cabeceras, filas) {
+  return `<details class="datos"><summary>Ver datos en tabla</summary><div class="tabla-envoltura"><table>
+    <thead><tr>${cabeceras.map((c, i) => `<th class="${i ? 'n' : ''}">${escG(c)}</th>`).join('')}</tr></thead>
+    <tbody>${filas.map((f) => `<tr>${f.map((c, i) => `<td class="${i ? 'n' : ''}">${escG(c)}</td>`).join('')}</tr>`).join('')}</tbody>
+  </table></div></details>`;
+}
 
 </script>
   <script>
@@ -536,22 +939,72 @@ const barra = (p) => `<div class="barra" title="${fmt(p * 100, 0)}%"><i style="w
 // ---------- Enrutador ----------
 
 const vistas = {};
+const acciones = {};
+const formularios = {};
 let alMontar = null;
 
 function render() {
   const [ruta, ...args] = (location.hash.slice(1) || 'resumen').split('/').map(decodeURIComponent);
   const vista = vistas[ruta] || vistas.resumen;
   alMontar = null;
+  ocultarTip();
   $('#app').innerHTML = vista(...args);
-  $('#empresa-nombre').textContent = `${db.empresa.nombre} · ${db.empresa.almacen}`;
-  $$('nav a').forEach((a) => a.classList.toggle('activo', a.getAttribute('href') === '#' + ruta));
+  pintarMarca();
+  const activa = { orden: 'ordenes', 'nueva-orden': 'ordenes', 'editar-orden': 'ordenes', entrega: 'ordenes', kardex: 'stock', material: 'stock', conteo: 'stock', 'nuevo-mov': 'movimientos' }[ruta] || ruta;
+  $$('#menu a').forEach((a) => a.classList.toggle('activo', a.getAttribute('href') === '#' + (vistas[activa] ? activa : 'resumen')));
+  $('#lateral').classList.remove('abierto');
   if (alMontar) alMontar();
   window.scrollTo(0, 0);
 }
 window.addEventListener('hashchange', render);
 
-const acciones = {};
-const formularios = {};
+function iniciales(nombre) {
+  const palabras = String(nombre || '').replace(/S\.?A\.?C\.?|E\.?I\.?R\.?L\.?|S\.?R\.?L\.?|S\.?A\.?/g, '').split(/\s+/).filter((p) => p.length > 2);
+  return (palabras.slice(0, 2).map((p) => p[0]).join('') || 'AL').toUpperCase();
+}
+
+function pintarMarca() {
+  $('#empresa-nombre').textContent = db.empresa.nombre;
+  $('#empresa-almacen').textContent = db.empresa.almacen;
+  const logo = $('#logo');
+  if (db.empresa.logo) logo.innerHTML = `<img src="${esc(db.empresa.logo)}" alt="Logo de ${esc(db.empresa.nombre)}">`;
+  else logo.textContent = iniciales(db.empresa.nombre);
+  document.title = `Inventario · ${db.empresa.nombre}`;
+  const oscuro = temaActual() === 'dark';
+  $('#boton-tema').innerHTML = `${icono(oscuro ? 'sol' : 'luna')}<span class="tema-texto">${oscuro ? 'Modo claro' : 'Modo oscuro'}</span>`;
+}
+
+function temaActual() {
+  const t = document.documentElement.dataset.theme;
+  if (t) return t;
+  return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+acciones.tema = () => {
+  const nuevo = temaActual() === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = nuevo;
+  try { localStorage.setItem('inventario-tema', nuevo); } catch (e) { /* sin almacenamiento */ }
+  pintarMarca();
+};
+acciones.menu = () => $('#lateral').classList.toggle('abierto');
+
+formularios.buscar = (f) => {
+  const q = f.elements.q.value.trim();
+  if (!q) return;
+  const o = db.ordenes.find((x) => norm(x.numero) === norm(q) || norm(x.numero).replace(/^0+/, '') === norm(q).replace(/^0+/, ''));
+  if (o) {
+    location.hash = '#orden/' + o.id;
+  } else if (db.materiales.some((m) => norm(m.codigo + ' ' + m.descripcion).includes(norm(q)))) {
+    filtroStock.texto = q;
+    filtroStock.modo = '';
+    location.hash === '#stock' ? render() : (location.hash = '#stock');
+  } else {
+    filtroMov.texto = q;
+    location.hash === '#movimientos' ? render() : (location.hash = '#movimientos');
+  }
+  f.elements.q.value = '';
+};
+
 document.addEventListener('click', (ev) => {
   const b = ev.target.closest('[data-accion]');
   if (!b || !acciones[b.dataset.accion]) return;
@@ -584,35 +1037,174 @@ vistas.resumen = () => {
   const abiertas = estados.filter(({ e }) => e.estado === 'Pendiente' || e.estado === 'Parcial');
   const valorStock = [...calc.mats.values()].reduce((a, s) => a + Math.max(0, s.valor), 0);
   const bajoMinimo = db.materiales.filter((m) => m.minimo > 0 && (calc.mats.get(m.id)?.stock || 0) < m.minimo);
-  const porComprar = listaPorComprar(calc);
   const negativos = db.materiales.filter((m) => calc.mats.get(m.id)?.negativo);
-  const porEntregar = abiertas.reduce((a, { e }) => a + e.total - e.totalEntregado, 0);
+  const f = franjaOrdenes(abiertas, calc);
+  const sem = semanasPanel(periodoPanel);
+  const compraPeriodo = sem.compras.reduce((a, v) => a + v, 0);
+  const entregaPeriodo = sem.entregas.reduce((a, v) => a + v, 0);
+  const cuenta = (est) => estados.filter(({ e }) => e.estado === est).length;
+  const vencidas = estados.filter(({ e }) => e.vencida).length;
+
+  const avance = estados.filter(({ e }) => e.estado !== 'Cerrada')
+    .sort((a, b) => (b.o.fecha || '').localeCompare(a.o.fecha || '') || b.o.numero.localeCompare(a.o.numero)).slice(0, 8);
+  const topStock = db.materiales.map((m) => ({ m, s: calc.mats.get(m.id) })).filter(({ s }) => s.valor > EPS)
+    .sort((a, b) => b.s.valor - a.s.valor).slice(0, 8);
+
+  const segmentos = [
+    { nombre: 'Entregado', valor: f.entregado, color: 'var(--s-azul)', tinta: '#ffffff' },
+    { nombre: 'Listo en almacén', valor: f.listo, color: 'var(--s-aqua)', tinta: '#0f1a17' },
+    { nombre: 'Falta comprar', valor: f.porComprar, color: 'var(--s-naranja)', tinta: '#1d120c' },
+  ];
+  const totalFranja = f.entregado + f.listo + f.porComprar;
 
   return `
-    <h1>Resumen</h1>
+    <div class="fila"><h1 class="titulo-panel">Panel de almacén</h1><span class="espacio"></span>
+      <a class="btn" href="#compra">+ Registrar compra</a>
+      <a class="btn primario" href="#nueva-orden">+ Nueva O/C</a></div>
     ${negativos.length ? `<p class="alerta error">Hay materiales que quedaron con stock negativo en algún momento (${negativos.map((m) => esc(m.codigo)).join(', ')}). Revisa sus kardex: probablemente falta registrar una compra o la fecha de un movimiento está mal.</p>` : ''}
-    <div class="tarjetas">
-      <a class="tarjeta" href="#ordenes" style="text-decoration:none;color:inherit"><b>${abiertas.length}</b><span>O/C por entregar · ${soles(porEntregar)}</span></a>
-      <a class="tarjeta" href="#por-comprar" style="text-decoration:none;color:inherit"><b>${porComprar.length}</b><span>materiales por comprar para cumplir las O/C</span></a>
-      <a class="tarjeta" href="#stock" style="text-decoration:none;color:inherit"><b>${soles(valorStock)}</b><span>valor del stock en almacén (costo promedio)</span></a>
-      <a class="tarjeta" href="#stock" style="text-decoration:none;color:inherit"><b>${bajoMinimo.length}</b><span>materiales bajo su stock mínimo</span></a>
+    <div class="fila" style="margin-bottom:12px">
+      <label style="display:flex;gap:8px;align-items:center">Periodo
+        <select id="periodo-panel" style="width:auto;margin:0">
+          ${[[4, 'Últimas 4 semanas'], [8, 'Últimas 8 semanas'], [12, 'Últimas 12 semanas'], [26, 'Últimos 6 meses'], [52, 'Último año']]
+            .map(([v, t]) => `<option value="${v}" ${v === periodoPanel ? 'selected' : ''}>${t}</option>`).join('')}
+        </select></label>
     </div>
     <div class="panel">
-      <div class="fila"><h2 style="margin:0">Órdenes por entregar</h2><span class="espacio"></span>
-        <a class="btn" href="#nueva-orden">+ Nueva O/C</a></div>
+      <div class="kpis">
+        <a class="kpi" href="#ordenes"><span class="icono-kpi">${icono('camion')}</span><div><b>${soles(totalFranja - f.entregado)}</b><span>Por entregar · ${abiertas.length} O/C</span></div></a>
+        <a class="kpi" href="#stock"><span class="icono-kpi">${icono('caja')}</span><div><b>${soles(valorStock)}</b><span>Valor del stock</span></div></a>
+        <a class="kpi" href="#movimientos"><span class="icono-kpi">${icono('tendencia')}</span><div><b>${soles(entregaPeriodo)}</b><span>Entregado en el periodo</span></div></a>
+        <a class="kpi" href="#movimientos"><span class="icono-kpi">${icono('dinero')}</span><div><b>${soles(compraPeriodo)}</b><span>Comprado en el periodo</span></div></a>
+      </div>
+      ${totalFranja > EPS ? `
+        <div class="franja" role="img" aria-label="Avance de las O/C abiertas">
+          ${segmentos.filter((s) => s.valor > EPS).map((s) => {
+            const pct = (s.valor / totalFranja) * 100;
+            return `<div style="width:${pct}%;background:${s.color};color:${s.tinta}" ${tipAttr({ t: s.nombre, f: [[soles(s.valor), fmt(pct, 0) + '% de las O/C abiertas', s.color]] })}>
+              ${pct >= 14 ? `<small>${s.nombre}</small><b>${soles(s.valor)}</b>` : ''}</div>`;
+          }).join('')}
+        </div>
+        <div class="leyenda">${segmentos.map((s) => `<span><i style="background:${s.color}"></i>${s.nombre}: <b>${soles(s.valor)}</b></span>`).join('')}</div>` : ''}
+    </div>
+
+    <div class="rejilla-3">
+      <div class="panel">
+        <div class="cabecera-grafico"><h2>Avance de entrega por O/C</h2></div>
+        ${graficoBarrasH(avance.map(({ o, e }) => ({
+          etiqueta: `O/C ${o.numero} · ${o.entidad}`,
+          valor: e.avance * 100,
+          texto: fmt(e.avance * 100, 0) + '%',
+          enlace: '#orden/' + o.id,
+          tip: { t: `O/C ${o.numero} · ${e.estado}${e.vencida ? ' · vencida' : ''}`, f: [[soles(e.totalEntregado), 'entregado', 'var(--s-azul)'], [soles(e.total), 'total de la O/C', '']] },
+        })), { max: 100 })}
+        ${tablaDatos(['O/C', 'Avance', 'Entregado', 'Total'], avance.map(({ o, e }) => [o.numero, fmt(e.avance * 100, 0) + '%', soles(e.totalEntregado), soles(e.total)]))}
+      </div>
+      <div class="panel">
+        <div class="cabecera-grafico"><h2>Materiales con más valor en stock</h2></div>
+        ${graficoBarrasH(topStock.map(({ m, s }) => ({
+          etiqueta: m.descripcion,
+          valor: s.valor,
+          texto: soles(s.valor),
+          enlace: '#kardex/' + m.id,
+          tip: { t: m.descripcion, f: [[soles(s.valor), 'valor', 'var(--s-azul)'], [`${cant(s.stock)} ${m.unidad}`, 'en stock', '']] },
+        })))}
+        ${topStock.length ? tablaDatos(['Material', 'Stock', 'Valor'], topStock.map(({ m, s }) => [m.descripcion, `${cant(s.stock)} ${m.unidad}`, soles(s.valor)])) : ''}
+      </div>
+      <div class="panel">
+        <div class="cabecera-grafico"><h2>Estado de las órdenes</h2></div>
+        <div class="estados">
+          <a class="estado-oc" href="#ordenes"><b>${cuenta('Pendiente')}</b><span class="etiqueta e-azul">Pendientes</span></a>
+          <a class="estado-oc" href="#ordenes"><b>${cuenta('Parcial')}</b><span class="etiqueta e-ambar">Parciales</span></a>
+          <a class="estado-oc" href="#ordenes"><b>${cuenta('Entregada')}</b><span class="etiqueta e-verde">✔ Entregadas</span></a>
+          <a class="estado-oc" href="#ordenes"><b>${vencidas}</b><span class="etiqueta e-rojo">⚠ Vencidas</span></a>
+        </div>
+        <p class="suave" style="margin-bottom:0">${bajoMinimo.length ? `<a href="#stock">${bajoMinimo.length} material(es) bajo su stock mínimo</a> · ` : ''}<a href="#por-comprar">Ver lista por comprar</a></p>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="cabecera-grafico"><h2>Compras y entregas por semana</h2><span class="espacio"></span><span class="suave">Soles · compras a costo, entregas a precio de la O/C</span></div>
+      ${graficoLineas({
+        etiquetas: sem.etiquetas,
+        titulos: sem.titulos,
+        series: [
+          { nombre: 'Entregas', color: 'var(--s-azul)', valores: sem.entregas },
+          { nombre: 'Compras', color: 'var(--s-aqua)', valores: sem.compras },
+        ],
+        formato: soles,
+      })}
+      <div class="leyenda"><span><i class="linea" style="background:var(--s-azul)"></i>Entregas</span><span><i class="linea" style="background:var(--s-aqua)"></i>Compras</span></div>
+      ${tablaDatos(['Semana', 'Entregas', 'Compras'], sem.titulos.map((t, i) => [t, soles(sem.entregas[i]), soles(sem.compras[i])]))}
+    </div>
+
+    <div class="panel">
+      <h2 class="sin-margen">Órdenes por entregar</h2>
       ${abiertas.length ? tablaOrdenes(abiertas) : '<p class="suave">No hay órdenes pendientes de entrega.</p>'}
     </div>
-    <div class="panel">
-      <h2 style="margin-top:0">Cómo se usa</h2>
+    <details class="panel">
+      <summary>Cómo se usa</summary>
       <ol>
         <li><b>Registra cada O/C</b> que te llega (Órdenes → Nueva O/C). Puedes pegar los ítems o pedirle a Claude que lea el PDF escaneado.</li>
         <li><b>Mira «Por comprar»</b>: te dice qué falta comprar para cumplir las O/C, descontando lo que ya tienes en almacén.</li>
-        <li><b>Cuando llegue la compra</b>, regístrala como <b>entrada</b> con su factura o boleta y su costo.</li>
+        <li><b>Cuando llegue la compra</b>, regístrala en «Registrar compra» con su factura o boleta y su costo.</li>
         <li><b>Cuando entregues a la entidad</b>, entra a la O/C → «Registrar entrega» con el N° de guía de remisión. La app descuenta el stock, marca lo pendiente e imprime el acta de entrega.</li>
         <li>Si algo regresa al almacén usa <b>Devolución</b>; si el conteo físico no cuadra usa <b>Conteo físico</b> (en Stock). Nada se borra: los errores se anulan con motivo.</li>
       </ol>
-    </div>`;
+    </details>`;
 };
+
+let periodoPanel = 12;
+document.addEventListener('change', (ev) => {
+  if (ev.target.id !== 'periodo-panel') return;
+  periodoPanel = Number(ev.target.value);
+  render();
+});
+
+// Reparte el stock entre las O/C abiertas (de la más antigua a la más nueva) para saber qué ya se puede entregar.
+function franjaOrdenes(abiertas, calc) {
+  const resto = new Map([...calc.mats].map(([id, s]) => [id, Math.max(0, s.stock)]));
+  let entregado = 0;
+  let listo = 0;
+  let porComprar = 0;
+  for (const { o, e } of [...abiertas].sort((a, b) => ordenCrono(a.o, b.o))) {
+    entregado += e.totalEntregado;
+    for (const it of e.items) {
+      const disponible = Math.min(it.pendiente, resto.get(it.materialId) || 0);
+      resto.set(it.materialId, (resto.get(it.materialId) || 0) - disponible);
+      listo += disponible * it.pu;
+      porComprar += (it.pendiente - disponible) * it.pu;
+    }
+  }
+  return { entregado, listo, porComprar };
+}
+
+// Suma compras (a costo) y entregas (a precio de la O/C) por semana, de lunes a domingo.
+function semanasPanel(n) {
+  const lunes = new Date(hoy() + 'T12:00:00');
+  lunes.setDate(lunes.getDate() - ((lunes.getDay() + 6) % 7) - 7 * (n - 1));
+  const inicio = lunes.toISOString().slice(0, 10);
+  const etiquetas = [];
+  const titulos = [];
+  for (let i = 0; i < n; i++) {
+    const a = sumarDias(inicio, i * 7);
+    const b = sumarDias(a, 6);
+    etiquetas.push(a.slice(8, 10) + '/' + a.slice(5, 7));
+    titulos.push(`Semana del ${fechaPe(a)} al ${fechaPe(b)}`);
+  }
+  const compras = new Array(n).fill(0);
+  const entregas = new Array(n).fill(0);
+  for (const mv of db.movimientos) {
+    if (mv.anulado || !mv.fecha || mv.fecha < inicio) continue;
+    const i = Math.floor((new Date(mv.fecha + 'T12:00:00') - new Date(inicio + 'T12:00:00')) / (7 * 864e5));
+    if (i < 0 || i >= n) continue;
+    if (mv.tipo === 'ENTRADA') compras[i] += num(mv.cantidad) * num(mv.costo);
+    if ((mv.tipo === 'SALIDA' || mv.tipo === 'DEVOLUCION') && mv.ordenId) {
+      const it = orden(mv.ordenId)?.items.find((x) => x.materialId === mv.materialId);
+      if (it) entregas[i] += (mv.tipo === 'SALIDA' ? 1 : -1) * num(mv.cantidad) * it.pu;
+    }
+  }
+  return { etiquetas, titulos, compras: compras.map((v) => redondear(v, 2)), entregas: entregas.map((v) => redondear(v, 2)) };
+}
 
 function tablaOrdenes(lista) {
   return `<div class="tabla-envoltura"><table>
@@ -1615,12 +2207,21 @@ acciones['imprimir-kardex'] = (b) => {
 // ---------- Respaldo y configuración ----------
 
 vistas.config = () => `
-  <h1>Respaldo y datos de la empresa</h1>
+  <h1>Empresa y respaldo</h1>
   <form data-form="empresa" class="panel">
     <div class="campos">
       <label>Empresa<input name="nombre" value="${esc(db.empresa.nombre)}"></label>
       <label>RUC<input name="ruc" value="${esc(db.empresa.ruc)}"></label>
       <label>Nombre del almacén<input name="almacen" value="${esc(db.empresa.almacen)}"></label>
+      <div class="ancho">
+        <label>Logo de la empresa (PNG o JPG)</label>
+        <div class="fila" style="margin-top:4px">
+          <span class="logo" style="width:64px;height:64px">${db.empresa.logo ? `<img src="${esc(db.empresa.logo)}" alt="">` : esc(iniciales(db.empresa.nombre))}</span>
+          <label class="btn" style="color:var(--texto)">Subir logo<input type="file" id="archivo-logo" accept="image/*" hidden></label>
+          ${db.empresa.logo ? '<button type="button" class="btn peligro" data-accion="quitar-logo">Quitar logo</button>' : ''}
+          <span class="suave">Aparece en el menú, en las actas de entrega y en los reportes impresos.</span>
+        </div>
+      </div>
     </div>
     <div class="fila fin" style="margin-top:10px"><button class="btn primario">Guardar</button></div>
   </form>
@@ -1644,7 +2245,34 @@ vistas.config = () => `
 
 formularios.empresa = (f) => {
   const d = Object.fromEntries(new FormData(f));
-  db.empresa = { nombre: d.nombre.trim(), ruc: d.ruc.trim(), almacen: d.almacen.trim() || 'Almacén principal' };
+  db.empresa = { ...db.empresa, nombre: d.nombre.trim(), ruc: d.ruc.trim(), almacen: d.almacen.trim() || 'Almacén principal' };
+  guardar();
+  render();
+};
+
+// El logo se reduce a 256 px para que quepa en el almacenamiento del navegador.
+document.addEventListener('change', async (ev) => {
+  if (ev.target.id !== 'archivo-logo' || !ev.target.files[0]) return;
+  try {
+    const url = URL.createObjectURL(ev.target.files[0]);
+    const img = new Image();
+    await new Promise((ok, mal) => { img.onload = ok; img.onerror = mal; img.src = url; });
+    const escala = Math.min(1, 256 / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.width * escala);
+    c.height = Math.round(img.height * escala);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(url);
+    db.empresa.logo = c.toDataURL('image/png');
+    guardar();
+    render();
+  } catch (e) {
+    alert('No se pudo leer esa imagen. Prueba con un PNG o JPG.');
+  }
+});
+
+acciones['quitar-logo'] = () => {
+  delete db.empresa.logo;
   guardar();
   render();
 };
@@ -1687,7 +2315,7 @@ acciones['borrar-todo'] = () => {
 // ---------- Impresión y descargas ----------
 
 function cabeceraImpresion(titulo) {
-  return `<div style="display:flex;justify-content:space-between"><div><b>${esc(db.empresa.nombre)}</b><br>RUC ${esc(db.empresa.ruc)} · ${esc(db.empresa.almacen)}</div><div>Fecha: ${fechaPe(hoy())}</div></div>
+  return `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px">${db.empresa.logo ? `<img class="logo-impresion" src="${esc(db.empresa.logo)}" alt="">` : ''}<div style="flex:1"><b>${esc(db.empresa.nombre)}</b><br>RUC ${esc(db.empresa.ruc)} · ${esc(db.empresa.almacen)}</div><div>Fecha: ${fechaPe(hoy())}</div></div>
     <h2 style="text-align:center">${titulo}</h2>`;
 }
 
@@ -1765,6 +2393,8 @@ function descargarCsv(nombre, filas) {
 
 // ---------- Inicio ----------
 
+$$('[data-icono]').forEach((el) => el.insertAdjacentHTML('afterbegin', icono(el.dataset.icono)));
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', pintarMarca);
 document.body.insertAdjacentHTML('beforeend', `<datalist id="dl-unidades">${UNIDADES.map((u) => `<option value="${u}">`).join('')}</datalist>`);
 render();
 
