@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="es-PE">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inventario de Almacén</title>
+  <link rel="stylesheet" href="css/estilos.css">
+</head>
+<body>
+  <header>
+    <div class="marca">📦 Inventario de Almacén <small id="empresa-nombre"></small></div>
+    <nav>
+      <a href="#resumen">Resumen</a>
+      <a href="#ordenes">Órdenes</a>
+      <a href="#por-comprar">Por comprar</a>
+      <a href="#compra">Registrar compra</a>
+      <a href="#movimientos">Movimientos</a>
+      <a href="#stock">Stock</a>
+      <a href="#config">Respaldo</a>
+    </nav>
+  </header>
+  <p id="aviso-guardado" class="alerta error" hidden>No se pudo guardar en este navegador. Descarga un respaldo en «Respaldo» para no perder tus datos.</p>
+  <main id="app"></main>
+  <footer>Los datos se guardan solo en este navegador y en esta computadora. Descarga un respaldo cada semana.</footer>
+  <div id="imprimir"></div>
+  <script src="js/ordenes-iniciales.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
