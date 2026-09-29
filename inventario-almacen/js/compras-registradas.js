@@ -76,4 +76,15 @@ const COMPRAS_REGISTRADAS = [
       [2, 'UND', 'YESO X 5KG APROX.', 6.5],
     ],
   },
+  {
+    proveedor: 'HOMECENTERS PERUANOS S.A. (PROMART)',
+    ruc: '20536557858',
+    documento: 'FA38-00820427',
+    fecha: '2026-09-27',
+    pago: 'TARJETA',
+    total: 79.0,
+    items: [
+      [1, 'UND', 'TABLERO RIEL 2 (COD. 2000000472607)', 79],
+    ],
+  },
 ];
