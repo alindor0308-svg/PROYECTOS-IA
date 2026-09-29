@@ -42,4 +42,9 @@ Las facturas que el usuario envía en PDF se transcriben en `js/compras-registra
 
 | Fecha | Comprobante | Proveedor | Total |
 |---|---|---|---|
+| 19/09/2026 | F001-00033993 | Importadora Comercializadora del Norte S.A.C. – Eurotubo (RUC 20482690875) | S/ 1,118.40 |
+| 26/09/2026 | F002-00035209 | Importadora Comercializadora del Norte S.A.C. – Eurotubo (RUC 20482690875) | S/ 725.30 |
+| 26/09/2026 | FFF1-00016116 | Inversiones Ferreteros Palermo E.I.R.L. (RUC 20559675807) | S/ 25.00 |
 | 28/09/2026 | F001-00000962 | Comercializadora Aleyarí (RUC 20601224373) | S/ 275.00 |
+
+Los ítems que corresponden a una O/C se asocian al material de esa O/C (con conversión de unidades, por ejemplo tubos de 3 m a metros); la descripción original de la factura queda en la observación del movimiento.

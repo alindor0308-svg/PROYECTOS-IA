@@ -508,9 +508,12 @@ const ORDENES_INICIALES = [
 </script>
   <script>
 'use strict';
-// Facturas de compra transcritas de los PDF que envía el usuario.
+// Facturas de compra transcritas de los PDF y fotos que envía el usuario.
 // Al abrir la app, cada factura se agrega una sola vez como entrada al almacén.
-// Cada ítem: [cantidad, unidad, descripción, precio unitario con IGV].
+// Cada ítem: [cantidad, unidad, descripción de la factura, precio unitario con IGV, equivalencia?]
+// La equivalencia asocia el ítem a un material que ya existe (por ejemplo, el de una O/C):
+//   { material: 'descripción en el catálogo', factor: n, oc: 'N° de O/C' }
+//   factor convierte la unidad de la factura a la del catálogo (tubo de 3 m → factor 3 si la O/C pide metros).
 
 const COMPRAS_REGISTRADAS = [
   {
@@ -523,6 +526,63 @@ const COMPRAS_REGISTRADAS = [
     items: [
       [2, 'UND', 'BIDON VACIO DE 200 LT.', 120],
       [5, 'UND', 'BALDES VACIOS', 7],
+    ],
+  },
+  {
+    proveedor: 'IMPORTADORA COMERCIALIZADORA DEL NORTE S.A.C. (EUROTUBO)',
+    ruc: '20482690875',
+    documento: 'F001-00033993',
+    fecha: '2026-09-19',
+    pago: 'CONTADO',
+    total: 1118.4,
+    items: [
+      [50, 'UND', 'CURVA PVC SEL 3/4" X 90°', 0.39],
+      [50, 'UND', 'TUBO PVC NTP-399.006 3/4" (19,1MM) L X 3M S/P', 2.29],
+      [2, 'UND', 'PEGAMENTO OATEY PVC REGULAR 1/4 (32 ONZAS)', 49.8, { material: 'PEGAMENTO PARA TUBO PVC 32 ONZ (1/4 GALON)', oc: '000062' }],
+      [50, 'UND', 'CODO PVC DSG. INYECTADO 2" X 90° EUROTUBO', 1.71, { material: 'CODO 90° PVC SIMPLE PRESION P/DESAGUE DN 2"', oc: '000062' }],
+      [15, 'UND', 'TUBO PVC NTP-399.003 2" (54MM) DS CL X 3M S/P', 7.13, { material: 'TUBO PVC SP NTP 399.003 CLASE PESADA DN 2"', factor: 3, oc: '000062' }],
+      [3, 'UND', 'TEE PVC DSG. INYECTADO 2" X 2" EUROTUBO', 2.2, { material: 'TEE SANITARIA PVC SIMPLE PRESION P/DESGAUE DN 2"', oc: '000062' }],
+      [20, 'UND', 'TUBO PVC NTP-399.003 4" (105MM) DS CL X 3M S/P', 18.19, { material: 'TUBO PVC SP NTP 399.003 CLASE PESADA DN 4"', factor: 3, oc: '000062' }],
+      [18, 'UND', 'CODO PVC DSG. INYECTADO 4" X 90° EUROTUBO', 5.62, { material: 'CODO 90° PVC SIMPLE PRESION P/DESAGUE DN 4"', oc: '000062' }],
+      [10, 'UND', 'TUBO PVC NTP-399.002 1/2" (21MM) PN-10 X 5M S/P', 6.0, { material: 'TUBO PVC NTP-399.002 SP DN 1/2 PN10', factor: 5, oc: '000062' }],
+      [50, 'UND', 'CODO PVC PRESION INYECTADO 1/2" X 90° S/P EUROTUBO', 0.7, { material: 'CODO PVC 90° SP DN 1/2', oc: '000062' }],
+      [6, 'UND', 'CODO PVC DSG. INYECTADO 3" X 90° EUROTUBO', 3.27, { material: 'CODO 90° PVC SIMPLE PRESION P/DESAGUE DN 3"', oc: '000062' }],
+      [9, 'UND', 'CODO PVC DSG. INYECTADO 2" X 45° EUROTUBO', 1.38, { material: 'CODO 45° PVC SIMPLE PRESION O/DESAGUE DN 2"', oc: '000062' }],
+      [3, 'UND', 'YEE PVC DSG. INYECTADO 4" X 4" EUROTUBO', 9.61, { material: 'YEE SANITARIA PVC SIMPLE PRESION P/DESAGUE DN 4"', oc: '000062' }],
+      [6, 'UND', 'TEE PVC PRESION INYECTADO 1/2" S/P EUROTUBO', 1.02, { material: 'TEE PVC SP DN 1/2', oc: '000062' }],
+      [12, 'UND', 'YEE PVC DSG. INYECTADO 3" X 2"', 4.9, { material: 'YEE SANITARIA PVC SIMPLE PRESION P/DESAGUE DN 3"*2"', oc: '000062' }],
+    ],
+  },
+  {
+    proveedor: 'IMPORTADORA COMERCIALIZADORA DEL NORTE S.A.C. (EUROTUBO)',
+    ruc: '20482690875',
+    documento: 'F002-00035209',
+    fecha: '2026-09-26',
+    pago: 'CONTADO',
+    total: 725.3,
+    items: [
+      [1, 'UND', 'TABLERO EMPOTRABLE D/METAL C/RIEL 8 POLOS (SP)', 30.8],
+      [1, 'UND', 'TUBO PVC NTP-399.006 1" (33MM) P X 3M S/P', 5.97],
+      [1, 'UND', 'CURVA PVC SAP 1" X 90°', 1.88],
+      [40, 'UND', 'CAJA RECTANGULAR GALV. C/SALIDA 3/4" (0.70MM) SP', 2.38],
+      [12, 'UND', 'CINTA TEFLON SCHUBERT 1/2"', 0.59, { material: 'CINTA TEFLON INDUSTRIAL', oc: '000062' }],
+      [33, 'UND', 'UNION PRESION ROSCA (UPR) PVC INYECTADO 1/2" EUROTUBO', 0.38, { material: 'ADAPTADOR PVC UNION PRESION-ROSCA DN 1/2', oc: '000062' }],
+      [27, 'UND', 'NIPLE GALV. 1/2" X 1"', 0.98, { material: 'NIPLE DE FIERRO GALVANIZADO DN 1/2"*1/2"', oc: '000062' }],
+      [18, 'UND', 'UNION UNIVERSAL GALV. 1/2"', 11.9, { material: 'UNION UNIVERSAL DE FIERRO GALVANIZADO 1/2"', oc: '000062' }],
+      [24, 'UND', 'CODO GALV. 1/2" X 90°', 2.17, { material: 'CODO 90° DE FIERRO GALVANIZADO UNION ROSCADA DN 1/2"', oc: '000062' }],
+      [9, 'UND', 'VALV. ESFERICA CIM-14 DE 1/2"', 31.01, { material: 'VALVULA DE BRONCE TIPO ESFERICA PESADA DN 1/2"', oc: '000062' }],
+    ],
+  },
+  {
+    proveedor: 'INVERSIONES FERRETEROS PALERMO E.I.R.L. (ELECTROFERRETERIA PALERMO)',
+    ruc: '20559675807',
+    documento: 'FFF1-00016116',
+    fecha: '2026-09-26',
+    pago: 'CONTADO',
+    total: 25.0,
+    items: [
+      [1, 'KG', 'GRAPA 1" P/ALAMBRE PUAS', 12],
+      [2, 'UND', 'YESO X 5KG APROX.', 6.5],
     ],
   },
 ];
@@ -878,11 +938,15 @@ function importarComprasRegistradas() {
     if (yaEsta) continue;
     const grupo = uid();
     const ahora = Date.now();
-    c.items.forEach(([cant, unidad, descripcion, precio], i) => {
+    c.items.forEach(([cant, unidad, descripcion, precio, eq], i) => {
+      // Con equivalencia, el ítem entra al material del catálogo (p. ej. el de la O/C), convertido a su unidad.
+      const factor = eq?.factor || 1;
+      const mat = eq ? asegurarMaterial(eq.material, unidad) : asegurarMaterial(descripcion, unidad);
+      const oc = eq?.oc ? db.ordenes.find((o) => o.numero === eq.oc) : null;
       db.movimientos.push({
-        id: uid(), grupo, creado: ahora + i, fecha: c.fecha, tipo: 'ENTRADA', materialId: asegurarMaterial(descripcion, unidad).id,
-        cantidad: cant, costo: precio, ordenId: c.ordenId || '', documento: c.documento, tercero: `${c.proveedor} (RUC ${c.ruc})`,
-        obs: `Factura cargada automáticamente · pago ${c.pago || ''} · precios con IGV`.trim(), origen: clave,
+        id: uid(), grupo, creado: ahora + i, fecha: c.fecha, tipo: 'ENTRADA', materialId: mat.id,
+        cantidad: redondear(cant * factor), costo: redondear(precio / factor, 6), ordenId: oc ? oc.id : '', documento: c.documento, tercero: `${c.proveedor} (RUC ${c.ruc})`,
+        obs: (eq ? `En factura: ${cant} ${unidad} ${descripcion} a ${soles(precio)} c/u · ` : '') + `Pago ${c.pago || ''} · precios con IGV`, origen: clave,
       });
     });
     agregadas.push(`${c.documento} de ${c.proveedor} (${soles(c.total)})`);

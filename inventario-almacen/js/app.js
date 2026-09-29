@@ -112,11 +112,15 @@ function importarComprasRegistradas() {
     if (yaEsta) continue;
     const grupo = uid();
     const ahora = Date.now();
-    c.items.forEach(([cant, unidad, descripcion, precio], i) => {
+    c.items.forEach(([cant, unidad, descripcion, precio, eq], i) => {
+      // Con equivalencia, el ítem entra al material del catálogo (p. ej. el de la O/C), convertido a su unidad.
+      const factor = eq?.factor || 1;
+      const mat = eq ? asegurarMaterial(eq.material, unidad) : asegurarMaterial(descripcion, unidad);
+      const oc = eq?.oc ? db.ordenes.find((o) => o.numero === eq.oc) : null;
       db.movimientos.push({
-        id: uid(), grupo, creado: ahora + i, fecha: c.fecha, tipo: 'ENTRADA', materialId: asegurarMaterial(descripcion, unidad).id,
-        cantidad: cant, costo: precio, ordenId: c.ordenId || '', documento: c.documento, tercero: `${c.proveedor} (RUC ${c.ruc})`,
-        obs: `Factura cargada automáticamente · pago ${c.pago || ''} · precios con IGV`.trim(), origen: clave,
+        id: uid(), grupo, creado: ahora + i, fecha: c.fecha, tipo: 'ENTRADA', materialId: mat.id,
+        cantidad: redondear(cant * factor), costo: redondear(precio / factor, 6), ordenId: oc ? oc.id : '', documento: c.documento, tercero: `${c.proveedor} (RUC ${c.ruc})`,
+        obs: (eq ? `En factura: ${cant} ${unidad} ${descripcion} a ${soles(precio)} c/u · ` : '') + `Pago ${c.pago || ''} · precios con IGV`, origen: clave,
       });
     });
     agregadas.push(`${c.documento} de ${c.proveedor} (${soles(c.total)})`);
