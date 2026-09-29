@@ -374,6 +374,7 @@ details.datos summary { font-weight: 500; color: var(--suave); }
       <a href="#ordenes" data-icono="ordenes">Órdenes</a>
       <a href="#por-comprar" data-icono="carrito">Por comprar</a>
       <a href="#compra" data-icono="entrada">Registrar compra</a>
+      <a href="#facturas" data-icono="factura">Facturas de compra</a>
       <a href="#movimientos" data-icono="movimientos">Movimientos</a>
       <a href="#stock" data-icono="caja">Stock</a>
       <a href="#config" data-icono="ajustes">Empresa y respaldo</a>
@@ -608,6 +609,7 @@ const ICONOS = {
   ordenes: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 2.5h6v3H9zM9 11h6M9 15h4"/>',
   carrito: '<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 1.9-1.4L21 8H6.2"/>',
   entrada: '<path d="M12 3v11M7.5 9.5 12 14l4.5-4.5"/><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/>',
+  factura: '<path d="M6 3h12v18l-2.5-1.8L13 21l-2-1.8L9 21l-2.5-1.8L6 21z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
   movimientos: '<path d="M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/>',
   caja: '<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/>',
   ajustes: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
@@ -903,6 +905,7 @@ if (!db || !Array.isArray(db.materiales)) {
 let avisoImportacion = importarComprasRegistradas();
 
 function guardar() {
+  numerarCompras();
   try {
     localStorage.setItem(CLAVE, JSON.stringify(db));
     $('#aviso-guardado').hidden = true;
@@ -929,6 +932,29 @@ function cargarOrdenesIniciales() {
   return agregadas;
 }
 
+// Cada factura de compra (grupo de entradas) recibe un N° correlativo C-0001, C-0002…, en orden de fecha.
+// El número no cambia aunque la factura se anule, para que la numeración no tenga huecos ni se repita.
+function numerarCompras() {
+  const grupos = new Map();
+  for (const m of db.movimientos) {
+    if (m.tipo !== 'ENTRADA') continue;
+    const k = m.grupo || m.id;
+    if (!grupos.has(k)) grupos.set(k, []);
+    grupos.get(k).push(m);
+  }
+  const sinNumero = [...grupos.values()].filter((g) => !g.some((m) => m.nroCompra)).sort((a, b) => ordenCrono(a[0], b[0]));
+  for (const g of grupos.values()) {
+    const n = g.find((m) => m.nroCompra)?.nroCompra;
+    if (n) g.forEach((m) => { m.nroCompra = n; });
+  }
+  for (const g of sinNumero) {
+    db.contadorCompras = (db.contadorCompras || 0) + 1;
+    g.forEach((m) => { m.nroCompra = db.contadorCompras; });
+  }
+}
+
+const nroCompra = (n) => (n ? 'C-' + String(n).padStart(4, '0') : '');
+
 // "F001-00000962" y "f001-962" son el mismo comprobante.
 function claveDocumento(doc) {
   const m = String(doc || '').toUpperCase().replace(/\s+/g, '').match(/^([A-Z0-9]{1,4})-0*(\d+)$/);
@@ -940,7 +966,7 @@ function importarComprasRegistradas() {
   if (typeof COMPRAS_REGISTRADAS === 'undefined') return '';
   db.importados = db.importados || [];
   const agregadas = [];
-  for (const c of COMPRAS_REGISTRADAS) {
+  for (const c of [...COMPRAS_REGISTRADAS].sort((a, b) => a.fecha.localeCompare(b.fecha))) {
     const clave = `COMPRA|${c.ruc}|${claveDocumento(c.documento)}`;
     if (db.importados.includes(clave)) continue;
     db.importados.push(clave);
@@ -985,7 +1011,9 @@ function asegurarMaterial(descripcion, unidad) {
 
 const material = (id) => db.materiales.find((m) => m.id === id);
 const orden = (id) => db.ordenes.find((o) => o.id === id);
-const ordenCrono = (a, b) => (a.fecha || '').localeCompare(b.fecha || '') || (a.creado || 0) - (b.creado || 0);
+function ordenCrono(a, b) {
+  return (a.fecha || '').localeCompare(b.fecha || '') || (a.creado || 0) - (b.creado || 0);
+}
 
 // Recalcula stock, costo promedio y cantidades entregadas por O/C a partir de los movimientos.
 function calcular(movimientos = db.movimientos) {
@@ -1081,7 +1109,7 @@ function render() {
   ocultarTip();
   $('#app').innerHTML = vista(...args);
   pintarMarca();
-  const activa = { orden: 'ordenes', 'nueva-orden': 'ordenes', 'editar-orden': 'ordenes', entrega: 'ordenes', kardex: 'stock', material: 'stock', conteo: 'stock', 'nuevo-mov': 'movimientos' }[ruta] || ruta;
+  const activa = { orden: 'ordenes', 'nueva-orden': 'ordenes', 'editar-orden': 'ordenes', entrega: 'ordenes', kardex: 'stock', material: 'stock', factura: 'facturas', conteo: 'stock', 'nuevo-mov': 'movimientos' }[ruta] || ruta;
   $$('#menu a').forEach((a) => a.classList.toggle('activo', a.getAttribute('href') === '#' + (vistas[activa] ? activa : 'resumen')));
   $('#lateral').classList.remove('abierto');
   if (alMontar) alMontar();
@@ -1432,7 +1460,7 @@ vistas.orden = (id) => {
       ${grupos.length ? `<div class="tabla-envoltura"><table>
         <thead><tr><th>Fecha</th><th>Tipo</th><th>Documento</th><th>Proveedor / recibe</th><th class="n">Ítems</th><th></th></tr></thead>
         <tbody>${grupos.map((g) => `<tr class="${g.anulado ? 'anulado' : ''}">
-          <td>${fechaPe(g.fecha)}</td><td>${TIPOS[g.tipo]}</td><td>${esc(g.documento)}</td><td>${esc(g.tercero)}${g.recibe ? `<br><span class="suave">${esc(g.recibe)}</span>` : ''}</td>
+          <td>${fechaPe(g.fecha)}</td><td>${TIPOS[g.tipo]}</td><td>${g.movs[0].nroCompra ? `<a href="#factura/${g.clave}"><b>${nroCompra(g.movs[0].nroCompra)}</b></a> · ` : ''}${esc(g.documento)}</td><td>${esc(g.tercero)}${g.recibe ? `<br><span class="suave">${esc(g.recibe)}</span>` : ''}</td>
           <td class="n">${g.movs.length}</td>
           <td>${g.tipo === 'SALIDA' && !g.anulado ? `<button class="btn chico" data-accion="imprimir-acta" data-grupo="${g.clave}">Imprimir acta</button>` : ''}</td>
         </tr>`).join('')}</tbody></table></div>` : '<p class="suave">Todavía no hay compras ni entregas registradas para esta O/C.</p>'}
@@ -1882,7 +1910,135 @@ formularios.compra = (f) => {
     });
   });
   guardar();
-  location.hash = d.ordenId ? '#orden/' + d.ordenId : '#movimientos';
+  location.hash = '#factura/' + grupo;
+};
+
+// ---------- Facturas de compra (numeradas) ----------
+
+function facturasDeCompra() {
+  const grupos = agruparPorDocumento(db.movimientos.filter((m) => m.tipo === 'ENTRADA'));
+  return grupos.map((g) => ({
+    ...g,
+    nro: g.movs[0].nroCompra || 0,
+    total: g.movs.reduce((a, m) => a + num(m.cantidad) * num(m.costo), 0),
+    ordenes: [...new Set(g.movs.map((m) => orden(m.ordenId)?.numero).filter(Boolean))],
+  })).sort((a, b) => b.nro - a.nro);
+}
+
+const filtroFacturas = { texto: '', anuladas: false };
+
+vistas.facturas = () => {
+  alMontar = pintarFacturas;
+  return `
+    <div class="fila"><h1>Facturas de compra</h1><span class="espacio"></span>
+      <button class="btn" data-accion="csv-facturas">Excel (CSV)</button>
+      <button class="btn" data-accion="imprimir-facturas">Imprimir registro</button>
+      <a class="btn primario" href="#compra">+ Registrar compra</a></div>
+    <p class="suave">Cada factura recibe un N° correlativo de compra (C-0001, C-0002…) en orden de fecha. El número no cambia aunque la factura se anule.</p>
+    <div class="panel"><div class="campos" id="filtros-facturas">
+      <label>Buscar<input data-ff="texto" value="${esc(filtroFacturas.texto)}" placeholder="N° de compra, comprobante, proveedor, material…"></label>
+      <label><input type="checkbox" data-ff="anuladas" ${filtroFacturas.anuladas ? 'checked' : ''} style="width:auto"> Mostrar anuladas</label>
+    </div></div>
+    <div class="panel" id="lista-facturas"></div>`;
+};
+
+document.addEventListener('input', (ev) => {
+  const k = ev.target.dataset?.ff;
+  if (!k) return;
+  filtroFacturas[k] = ev.target.type === 'checkbox' ? ev.target.checked : ev.target.value;
+  pintarFacturas();
+});
+
+function facturasFiltradas() {
+  const t = norm(filtroFacturas.texto);
+  return facturasDeCompra().filter((f) => {
+    if (f.anulado && !filtroFacturas.anuladas) return false;
+    if (!t) return true;
+    return norm([nroCompra(f.nro), f.nro, f.documento, f.tercero, f.ordenes.join(' '), ...f.movs.map((m) => material(m.materialId)?.descripcion)].join(' ')).includes(t);
+  });
+}
+
+function pintarFacturas() {
+  const cont = $('#lista-facturas');
+  if (!cont) return;
+  const lista = facturasFiltradas();
+  const total = lista.filter((f) => !f.anulado).reduce((a, f) => a + f.total, 0);
+  cont.innerHTML = lista.length ? `<div class="tabla-envoltura"><table>
+    <thead><tr><th>N° compra</th><th>Fecha</th><th>Comprobante</th><th>Proveedor</th><th class="n">Ítems</th><th class="n">Total</th><th>O/C</th></tr></thead>
+    <tbody>${lista.map((f) => `<tr class="${f.anulado ? 'anulado' : ''}">
+      <td><a href="#factura/${f.clave}"><b>${nroCompra(f.nro)}</b></a></td>
+      <td style="white-space:nowrap">${fechaPe(f.fecha)}</td><td style="white-space:nowrap">${esc(f.documento) || '<span class="suave">—</span>'}</td><td>${esc(f.tercero)}</td>
+      <td class="n">${f.movs.length}</td><td class="n">${soles(f.total)}</td>
+      <td>${f.ordenes.map(esc).join(', ') || '<span class="suave">Stock general</span>'}</td>
+    </tr>`).join('')}</tbody>
+    <tfoot><tr><td colspan="5">${lista.filter((f) => !f.anulado).length} factura(s)</td><td class="n">${soles(total)}</td><td></td></tr></tfoot>
+  </table></div>` : '<p class="suave">No hay facturas con ese filtro.</p>';
+}
+
+acciones['csv-facturas'] = () => {
+  const filas = [['N compra', 'Fecha', 'Comprobante', 'Proveedor', 'Items', 'Total', 'O/C', 'Anulada']];
+  for (const f of facturasFiltradas()) filas.push([nroCompra(f.nro), f.fecha, f.documento, f.tercero, f.movs.length, redondear(f.total, 2), f.ordenes.join(' '), f.anulado ? 'SI' : '']);
+  descargarCsv(`facturas-de-compra-${hoy()}.csv`, filas);
+};
+
+acciones['imprimir-facturas'] = () => {
+  const lista = facturasFiltradas().filter((f) => !f.anulado).reverse();
+  imprimir(`${cabeceraImpresion('REGISTRO DE FACTURAS DE COMPRA')}
+    <table><thead><tr><th>N° compra</th><th>Fecha</th><th>Comprobante</th><th>Proveedor</th><th>Total S/</th></tr></thead>
+    <tbody>${lista.map((f) => `<tr><td>${nroCompra(f.nro)}</td><td>${fechaPe(f.fecha)}</td><td>${esc(f.documento)}</td><td>${esc(f.tercero)}</td><td style="text-align:right">${fmt(f.total)}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td colspan="4">Total</td><td style="text-align:right">${fmt(lista.reduce((a, f) => a + f.total, 0))}</td></tr></tfoot></table>`);
+};
+
+vistas.factura = (clave) => {
+  const f = facturasDeCompra().find((x) => x.clave === clave);
+  if (!f) return '<p class="alerta error">No se encontró la factura.</p>';
+  return `
+    <p><a href="#facturas">← Facturas de compra</a></p>
+    <div class="fila"><h1>Compra ${nroCompra(f.nro)} ${f.anulado ? '<span class="etiqueta e-rojo">Anulada</span>' : ''}</h1><span class="espacio"></span>
+      ${f.anulado ? '' : f.ordenes.map((n) => { const o = db.ordenes.find((x) => x.numero === n); return o && !o.cerrada ? `<a class="btn primario" href="#entrega/${o.id}">Registrar entrega O/C ${esc(n)}</a>` : ''; }).join('')}
+      <button class="btn" data-accion="imprimir-factura" data-clave="${esc(f.clave)}">Imprimir</button>
+      ${f.anulado ? '' : `<button class="btn peligro" data-accion="anular-factura" data-clave="${esc(f.clave)}">Anular factura</button>`}</div>
+    <div class="panel"><div class="campos">
+      <div><label>Comprobante</label><b>${esc(f.documento) || '—'}</b></div>
+      <div><label>Fecha</label>${fechaPe(f.fecha)}</div>
+      <div class="ancho"><label>Proveedor</label>${esc(f.tercero) || '—'}</div>
+      <div><label>O/C</label>${f.ordenes.length ? f.ordenes.map((n) => { const o = db.ordenes.find((x) => x.numero === n); return `<a href="#orden/${o.id}">${esc(n)}</a>`; }).join(', ') : 'Stock general'}</div>
+      <div><label>Total</label><b>${soles(f.total)}</b></div>
+    </div></div>
+    <div class="panel"><div class="tabla-envoltura"><table>
+      <thead><tr><th>#</th><th>Material</th><th class="n">Cantidad</th><th>Und</th><th class="n">Costo unit.</th><th class="n">Subtotal</th><th>Observación</th></tr></thead>
+      <tbody>${f.movs.map((m, i) => { const mat = material(m.materialId); return `<tr class="${m.anulado ? 'anulado' : ''}">
+        <td>${i + 1}</td><td><a href="#kardex/${m.materialId}">${esc(mat?.descripcion)}</a></td><td class="n">${cant(m.cantidad)}</td><td>${esc(mat?.unidad)}</td>
+        <td class="n">${fmt(m.costo, m.costo % 0.01 ? 4 : 2)}</td><td class="n">${fmt(num(m.cantidad) * num(m.costo))}</td><td class="suave">${esc(m.obs)}${m.anulado ? `<br><span class="rojo">Anulado: ${esc(m.motivoAnulacion)}</span>` : ''}</td></tr>`; }).join('')}</tbody>
+      <tfoot><tr><td colspan="5">Total</td><td class="n">${fmt(f.total)}</td><td></td></tr></tfoot>
+    </table></div></div>`;
+};
+
+acciones['imprimir-factura'] = (b) => {
+  const f = facturasDeCompra().find((x) => x.clave === b.dataset.clave);
+  imprimir(`${cabeceraImpresion(`REGISTRO DE COMPRA ${nroCompra(f.nro)}`)}
+    <p><b>Comprobante:</b> ${esc(f.documento)} · <b>Fecha:</b> ${fechaPe(f.fecha)}<br><b>Proveedor:</b> ${esc(f.tercero)}${f.ordenes.length ? ` · <b>O/C:</b> ${f.ordenes.map(esc).join(', ')}` : ''}</p>
+    <table><thead><tr><th>#</th><th>Material</th><th>Cant.</th><th>Und</th><th>Costo unit.</th><th>Subtotal</th></tr></thead>
+    <tbody>${f.movs.filter((m) => !m.anulado).map((m, i) => { const mat = material(m.materialId); return `<tr><td>${i + 1}</td><td>${esc(mat?.descripcion)}</td><td style="text-align:right">${cant(m.cantidad)}</td><td>${esc(mat?.unidad)}</td><td style="text-align:right">${fmt(m.costo, 4)}</td><td style="text-align:right">${fmt(num(m.cantidad) * num(m.costo))}</td></tr>`; }).join('')}</tbody>
+    <tfoot><tr><td colspan="5">Total</td><td style="text-align:right">${fmt(f.total)}</td></tr></tfoot></table>
+    <div class="firmas"><div>Recibí conforme (almacén)</div><div>V° B°</div></div>`);
+};
+
+acciones['anular-factura'] = (b) => {
+  const f = facturasDeCompra().find((x) => x.clave === b.dataset.clave);
+  const motivo = prompt(`Anular la compra ${nroCompra(f.nro)} (${f.documento}) completa.\n\nSus ${f.movs.length} ítems salen del stock, pero la factura queda en la lista, tachada, con su número.\nEscribe el motivo:`);
+  if (!motivo || !motivo.trim()) return;
+  const ids = new Set(f.movs.map((m) => m.id));
+  const prueba = db.movimientos.map((x) => (ids.has(x.id) ? { ...x, anulado: true } : x));
+  const antes = new Set(materialesEnNegativo(db.movimientos).map((m) => m.id));
+  const neg = materialesEnNegativo(prueba).filter((m) => !antes.has(m.id));
+  if (neg.length) {
+    alert(`No se puede anular: ya se entregó parte de estos materiales y el stock quedaría negativo:\n\n${neg.map((m) => '• ' + m.descripcion).join('\n')}\n\nAnula primero esas entregas.`);
+    return;
+  }
+  f.movs.forEach((m) => { if (!m.anulado) Object.assign(m, { anulado: true, motivoAnulacion: motivo.trim(), fechaAnulacion: hoy() }); });
+  guardar();
+  render();
 };
 
 // ---------- Registrar entrega (salida contra O/C) ----------
@@ -2088,7 +2244,7 @@ function pintarMovimientos() {
         <td class="n ${s < 0 ? 'rojo' : 'verde'}">${s > 0 ? '+' : ''}${cant(s)} ${esc(m?.unidad)}</td>
         <td class="n">${fmt(mv.tipo === 'ENTRADA' ? mv.costo : calc.costoMov.get(mv.id) || 0)}</td>
         <td>${mv.ordenId && orden(mv.ordenId) ? `<a href="#orden/${mv.ordenId}">${esc(orden(mv.ordenId).numero)}</a>` : ''}</td>
-        <td>${esc(mv.documento)}</td><td>${esc(mv.tercero)}</td>
+        <td>${mv.nroCompra ? `<a href="#factura/${mv.grupo || mv.id}"><b>${nroCompra(mv.nroCompra)}</b></a> · ` : ''}${esc(mv.documento)}</td><td>${esc(mv.tercero)}</td>
         <td>${esc(mv.obs)}${mv.anulado ? `<br><span class="rojo">Anulado: ${esc(mv.motivoAnulacion)}</span>` : ''}</td>
         <td>${mv.anulado ? '' : `<button class="btn chico peligro" data-accion="anular" data-id="${mv.id}">Anular</button>`}</td>
       </tr>`;
@@ -2120,11 +2276,11 @@ acciones.anular = (b) => {
 
 acciones['csv-movimientos'] = () => {
   const calc = calcular();
-  const filas = [['Fecha', 'Tipo', 'Codigo', 'Material', 'Unidad', 'Cantidad', 'Costo unitario', 'Valor', 'O/C', 'Documento', 'Proveedor/Entidad', 'Recibe', 'Observacion', 'Anulado']];
+  const filas = [['Fecha', 'Tipo', 'Codigo', 'Material', 'Unidad', 'Cantidad', 'Costo unitario', 'Valor', 'O/C', 'N compra', 'Documento', 'Proveedor/Entidad', 'Recibe', 'Observacion', 'Anulado']];
   for (const mv of movimientosFiltrados()) {
     const m = material(mv.materialId);
     const cu = mv.tipo === 'ENTRADA' ? num(mv.costo) : calc.costoMov.get(mv.id) || 0;
-    filas.push([mv.fecha, mv.tipo, m?.codigo, m?.descripcion, m?.unidad, signo(mv), redondear(cu), redondear(signo(mv) * cu, 2), orden(mv.ordenId)?.numero || '', mv.documento, mv.tercero, mv.recibe || '', mv.obs, mv.anulado ? 'SI: ' + (mv.motivoAnulacion || '') : '']);
+    filas.push([mv.fecha, mv.tipo, m?.codigo, m?.descripcion, m?.unidad, signo(mv), redondear(cu), redondear(signo(mv) * cu, 2), orden(mv.ordenId)?.numero || '', nroCompra(mv.nroCompra), mv.documento, mv.tercero, mv.recibe || '', mv.obs, mv.anulado ? 'SI: ' + (mv.motivoAnulacion || '') : '']);
   }
   descargarCsv(`movimientos-${hoy()}.csv`, filas);
 };
@@ -2322,7 +2478,7 @@ function tablaKardex(m, movs, calc, paraImprimir = false) {
     <tbody>${movs.filter((mv) => !paraImprimir || !mv.anulado).map((mv) => {
       const s = signo(mv);
       return `<tr class="${mv.anulado ? 'anulado' : ''}">
-        <td>${fechaPe(mv.fecha)}</td><td>${paraImprimir ? TIPOS[mv.tipo] : etiquetaTipo(mv.tipo)}</td><td>${esc(mv.documento)}</td>
+        <td>${fechaPe(mv.fecha)}</td><td>${paraImprimir ? TIPOS[mv.tipo] : etiquetaTipo(mv.tipo)}</td><td>${mv.nroCompra ? `${nroCompra(mv.nroCompra)} · ` : ''}${esc(mv.documento)}</td>
         <td>${esc(orden(mv.ordenId)?.numero || '')}</td><td>${esc(mv.tercero)}</td>
         <td class="n" style="text-align:right">${s > 0 ? cant(s) : ''}</td><td class="n" style="text-align:right">${s < 0 ? cant(-s) : ''}</td>
         <td class="n" style="text-align:right">${mv.anulado ? '' : cant(calc.saldoMov.get(mv.id))}</td>
