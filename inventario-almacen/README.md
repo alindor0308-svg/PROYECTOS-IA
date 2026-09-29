@@ -35,3 +35,11 @@ Los datos se guardan solo en ese navegador y en esa computadora. En **Respaldo**
 Los reportes se exportan a Excel como CSV (separado por comas y con punto decimal).
 
 Si cambias el código, vuelve a generar el archivo único con `python3 inventario-almacen/herramienta-empaquetar.py`.
+
+## Facturas de compra enviadas por chat
+
+Las facturas que el usuario envía en PDF se transcriben en `js/compras-registradas.js`. Al abrir la app, cada factura se agrega **una sola vez** como entrada al almacén (con proveedor, RUC, N° de comprobante y precios con IGV). No se duplica al reabrir, ni si ya estaba registrada a mano con el mismo N° de comprobante. Después de agregar facturas, se regenera `Inventario-Almacen.html`.
+
+| Fecha | Comprobante | Proveedor | Total |
+|---|---|---|---|
+| 28/09/2026 | F001-00000962 | Comercializadora Aleyarí (RUC 20601224373) | S/ 275.00 |

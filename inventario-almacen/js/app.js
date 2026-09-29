@@ -63,6 +63,7 @@ if (!db || !Array.isArray(db.materiales)) {
   cargarOrdenesIniciales();
   guardar();
 }
+let avisoImportacion = importarComprasRegistradas();
 
 function guardar() {
   try {
@@ -89,6 +90,39 @@ function cargarOrdenesIniciales() {
     agregadas++;
   }
   return agregadas;
+}
+
+// "F001-00000962" y "f001-962" son el mismo comprobante.
+function claveDocumento(doc) {
+  const m = String(doc || '').toUpperCase().replace(/\s+/g, '').match(/^([A-Z0-9]{1,4})-0*(\d+)$/);
+  return m ? `${m[1]}-${m[2]}` : norm(doc);
+}
+
+// Agrega como entradas las facturas incluidas en la app que aún no estén registradas (una sola vez cada una).
+function importarComprasRegistradas() {
+  if (typeof COMPRAS_REGISTRADAS === 'undefined') return '';
+  db.importados = db.importados || [];
+  const agregadas = [];
+  for (const c of COMPRAS_REGISTRADAS) {
+    const clave = `COMPRA|${c.ruc}|${claveDocumento(c.documento)}`;
+    if (db.importados.includes(clave)) continue;
+    db.importados.push(clave);
+    const yaEsta = db.movimientos.some((m) => m.tipo === 'ENTRADA' && !m.anulado && claveDocumento(m.documento) === claveDocumento(c.documento)
+      && (!m.tercero || norm(m.tercero).includes(c.ruc) || norm(c.proveedor).split(' ').some((p) => p.length > 3 && norm(m.tercero).includes(p))));
+    if (yaEsta) continue;
+    const grupo = uid();
+    const ahora = Date.now();
+    c.items.forEach(([cant, unidad, descripcion, precio], i) => {
+      db.movimientos.push({
+        id: uid(), grupo, creado: ahora + i, fecha: c.fecha, tipo: 'ENTRADA', materialId: asegurarMaterial(descripcion, unidad).id,
+        cantidad: cant, costo: precio, ordenId: c.ordenId || '', documento: c.documento, tercero: `${c.proveedor} (RUC ${c.ruc})`,
+        obs: `Factura cargada automáticamente · pago ${c.pago || ''} · precios con IGV`.trim(), origen: clave,
+      });
+    });
+    agregadas.push(`${c.documento} de ${c.proveedor} (${soles(c.total)})`);
+  }
+  guardar();
+  return agregadas.length ? `Se agregaron a tu inventario ${agregadas.length} factura(s) de compra: ${agregadas.join('; ')}.` : '';
 }
 
 function asegurarMaterial(descripcion, unidad) {
@@ -317,6 +351,7 @@ vistas.resumen = () => {
     <div class="fila"><h1 class="titulo-panel">Panel de almacén</h1><span class="espacio"></span>
       <a class="btn" href="#compra">+ Registrar compra</a>
       <a class="btn primario" href="#nueva-orden">+ Nueva O/C</a></div>
+    ${avisoImportacion ? `<p class="alerta ok">${esc(avisoImportacion)} <a href="#movimientos">Ver movimientos</a></p>` : ''}
     ${negativos.length ? `<p class="alerta error">Hay materiales que quedaron con stock negativo en algún momento (${negativos.map((m) => esc(m.codigo)).join(', ')}). Revisa sus kardex: probablemente falta registrar una compra o la fecha de un movimiento está mal.</p>` : ''}
     <div class="fila" style="margin-bottom:12px">
       <label style="display:flex;gap:8px;align-items:center">Periodo
