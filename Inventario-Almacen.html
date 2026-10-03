@@ -361,6 +361,9 @@ details.datos summary { font-weight: 500; color: var(--suave); }
 .bh-fila:hover .bh-pista i { filter: brightness(1.15); }
 .bh-pista span { font-size: 13px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
+/* ---------- Formulario de órdenes: campos de O/C u O/S ---------- */
+.form-oc .solo-os, .form-os .solo-oc { display: none; }
+
 </style>
 </head>
 <body>
@@ -398,8 +401,10 @@ details.datos summary { font-weight: 500; color: var(--suave); }
   <div id="imprimir"></div>
   <script>
 'use strict';
-// Órdenes de compra recibidas, transcritas de los PDF escaneados.
-// Cada ítem: [cantidad, unidad, descripción, precio unitario].
+// Órdenes de compra (O/C) y de servicio (O/S) recibidas, transcritas de los PDF escaneados.
+// O/C: cada ítem es [cantidad, unidad, descripción, precio unitario] de un bien a entregar.
+// O/S (tipo: 'OS'): "servicios" son las líneas o entregables facturables [cantidad, unidad, descripción, importe unitario, fecha programada?];
+// "items" son los materiales previstos para ejecutarla. Una O/S puede ir a un destino propio (centro + centroNombre).
 
 const ORDENES_INICIALES = [
   {
@@ -505,6 +510,55 @@ const ORDENES_INICIALES = [
       [14, 'UND', 'TABLA DE MADERA TORNILLO DE 1"*10"*3.00M', 102.5],
       [3, 'UND', 'PARANTE DE MADERA EUCALIPTO ROLLIZO DIAMETRO PROM.', 18.5],
     ],
+  },
+  {
+    tipo: 'OS',
+    numero: '000252',
+    fecha: '2026-10-01',
+    siaf: '610',
+    entidad: 'MUNICIPALIDAD DISTRITAL DE HUASO',
+    rucEntidad: '20211492687',
+    referencia: 'REQ. N°385-2026-MDH/SGI/EMVB',
+    area: 'SUB GERENCIA DE INFRAESTRUCTURA',
+    enviarA: 'PUESTO DE SALUD SATELITE CASERIO IDABUNGO, DISTRITO DE HUASO (CUI N° 2734158)',
+    meta: '0069 CONSTRUCCION DE CENTRO DE SALUD',
+    plazoDias: null,
+    plazoTexto: 'Según cronograma de obra, dentro del plazo de ejecución de obra',
+    formaPago: 'A la culminación del servicio, previa conformidad del área usuaria',
+    totalDeclarado: 2242,
+    servicios: [
+      [1, 'SERVICIO', 'SERVICIO DE SUMINISTRO, INSTALACION Y PUESTA EN FUNCIONAMIENTO DE UN (01) TANQUE BIODIGESTOR DE 1300 LT DE CAPACIDAD Y REGISTRO DE LODOS INCLUIDO ACCESORIOS, PARA EJECUCION DE LA OBRA "CONSTRUCCION DE EDIFICACION; EN EL (LA) CHINCHINVARA EN EL PUESTO DE SALUD SATELITE CASERIO IDABUNGO, DISTRITO DE HUASO, PROVINCIA JULCAN, DEPARTAMENTO LA LIBERTAD", CUI N° 2734158', 2242],
+    ],
+    items: [
+      [1, 'UND', 'TANQUE BIODIGESTOR DE 1300 LT', 0],
+      [1, 'UND', 'REGISTRO DE LODOS PARA BIODIGESTOR', 0],
+    ],
+  },
+  {
+    tipo: 'OS',
+    numero: '0003483',
+    fecha: '2026-09-10',
+    siaf: '0000010268',
+    entidad: 'GOBIERNO REGIONAL LA LIBERTAD',
+    rucEntidad: '20440374248',
+    referencia: 'Pedido de servicio N° 4780 · CP 4709 · Cuadro de adquisición N° 003525',
+    area: 'Dirección de la Casa de la Identidad Regional',
+    enviarA: 'Jr. Diego de Almagro N° 418, Casa de la Identidad Regional, Plaza de Armas de Trujillo',
+    meta: '0241 · Proyecto Casa de la Identidad',
+    plazoDias: null,
+    plazoTexto: 'En las fechas y horas de cada entregable',
+    fechaLimite: '2026-10-30',
+    formaPago: 'En soles, luego de la recepción formal y completa del servicio (art. 144 del Reglamento de la Ley N° 32069). Sujeto a penalidad.',
+    centro: 'refrigerios-grll',
+    centroNombre: 'Servicio de refrigerios – Gobierno Regional La Libertad (O/S 0003483)',
+    centroCorto: 'Refrigerios GRLL',
+    totalDeclarado: 2900,
+    // La O/S trae una sola línea de S/ 2,900 con dos entregables iguales; se reparte en dos para dar conformidad a cada uno.
+    servicios: [
+      [1, 'SERVICIO', 'ENTREGABLE 1: REFRIGERIOS 11/09/2026 10:00 A.M. — 100 UND. C/U DE EMPANADAS, TARTALETAS DE AJI DE GALLINA, MUSLITOS, BROCHETAS, SANDWICH DE MECHADO DE CERDO TIPO DOLAR Y ALFAJORCITOS', 1450, '2026-09-11'],
+      [1, 'SERVICIO', 'ENTREGABLE 2: REFRIGERIOS 30/10/2026 11:00 A.M. — 100 UND. C/U DE EMPANADAS, TARTALETAS DE AJI DE GALLINA, MUSLITOS, BROCHETAS, SANDWICH DE MECHADO DE CERDO TIPO DOLAR Y ALFAJORCITOS', 1450, '2026-10-30'],
+    ],
+    items: [],
   },
 ];
 
@@ -960,7 +1014,9 @@ if (!db || !Array.isArray(db.materiales)) {
   guardar();
 }
 asegurarCentros();
-let avisoImportacion = importarComprasRegistradas();
+const ordenesNuevas = cargarOrdenesIniciales();
+asegurarCentros();
+let avisoImportacion = [ordenesNuevas.length ? `Se agregó: ${ordenesNuevas.join(', ')}.` : '', importarComprasRegistradas()].filter(Boolean).join(' ');
 
 function guardar() {
   numerarCompras();
@@ -972,24 +1028,37 @@ function guardar() {
   }
 }
 
-function cargarOrdenesIniciales() {
-  let agregadas = 0;
+// Agrega las O/C y O/S incluidas en la app que aún no estén registradas (una sola vez cada una).
+function cargarOrdenesIniciales({ forzar = false } = {}) {
+  db.importados = db.importados || [];
+  const agregadas = [];
   for (const o of ORDENES_INICIALES) {
-    if (db.ordenes.some((x) => x.numero === o.numero && norm(x.entidad) === norm(o.entidad))) continue;
-    const { items, ...cabecera } = o;
+    const tipo = o.tipo || 'OC';
+    const clave = `ORDEN|${tipo}|${o.numero}|${o.rucEntidad}`;
+    if (db.importados.includes(clave) && !forzar) continue;
+    if (!db.importados.includes(clave)) db.importados.push(clave);
+    if (db.ordenes.some((x) => (x.tipo || 'OC') === tipo && x.numero === o.numero && norm(x.entidad) === norm(o.entidad))) continue;
+    const { items, servicios, centroNombre, centroCorto, ...cabecera } = o;
+    db.centros = Array.isArray(db.centros) && db.centros.length ? db.centros : CENTROS_BASE.map((c) => ({ ...c }));
+    if (o.centro && !db.centros.some((c) => c.id === o.centro)) db.centros.push({ id: o.centro, nombre: centroNombre || o.centro, corto: centroCorto || '' });
     db.ordenes.push({
       id: uid(),
       ...cabecera,
+      tipo,
       notificacion: cabecera.fecha,
-      centro: 'obra',
+      centro: o.centro || 'obra',
       obs: '',
       creado: Date.now(),
       items: items.map(([c, u, d, pu]) => ({ materialId: asegurarMaterial(d, u).id, cant: c, unidad: u, pu })),
+      ...(servicios ? { servicios: servicios.map(([c, u, d, pu, f]) => ({ cant: c, unidad: u, descripcion: d, pu, fecha: f || '', conformidad: '' })), enEjecucion: false, gastos: [] } : {}),
     });
-    agregadas++;
+    agregadas.push(`${tipo === 'OS' ? 'O/S' : 'O/C'} ${o.numero}`);
   }
   return agregadas;
 }
+
+const esOS = (o) => o?.tipo === 'OS';
+const nombreOrden = (o) => (o ? `${esOS(o) ? 'O/S' : 'O/C'} ${o.numero}` : '');
 
 // Crea los destinos y etiqueta lo que no tenga destino (todo lo anterior a esta versión es de la obra).
 function asegurarCentros() {
@@ -1208,17 +1277,36 @@ function estadoOrden(o, calc) {
     if (mv.tipo === 'SALIDA') costo += num(mv.cantidad) * (calc.costoMov.get(mv.id) || 0);
     if (mv.tipo === 'DEVOLUCION') costo -= num(mv.cantidad) * (calc.costoMov.get(mv.id) || 0);
   }
+  const vence = o.plazoDias ? sumarDias(o.notificacion || o.fecha, o.plazoDias) : '';
+  if (esOS(o)) {
+    // O/S: se factura el servicio al culminar; el costo es lo que salió del almacén más los otros gastos.
+    const servicios = o.servicios || [];
+    const totalOS = servicios.reduce((a, sv) => a + sv.cant * sv.pu, 0);
+    const conforme = servicios.filter((sv) => sv.conformidad).reduce((a, sv) => a + sv.cant * sv.pu, 0);
+    const gastos = (o.gastos || []).filter((g) => !g.anulado).reduce((a, g) => a + num(g.monto), 0);
+    const culminada = servicios.length > 0 && servicios.every((sv) => sv.conformidad);
+    const alguna = servicios.some((sv) => sv.conformidad) || o.enEjecucion || costo > EPS;
+    const estado = culminada ? 'Culminada' : o.cerrada ? 'Cerrada' : alguna ? 'En ejecución' : 'Pendiente';
+    const limite = o.fechaLimite || vence;
+    // Vencida si pasó la fecha de algún entregable sin conformidad, o la fecha límite.
+    const atrasada = servicios.some((sv) => !sv.conformidad && sv.fecha && sv.fecha < hoy()) || (Boolean(limite) && limite < hoy());
+    return {
+      items, total: totalOS, totalEntregado: conforme, costoMateriales: costo, gastos, costo: costo + gastos, estado, vence: limite,
+      vencida: !culminada && !o.cerrada && atrasada, avance: totalOS > 0 ? conforme / totalOS : 0,
+    };
+  }
   const completa = items.every((it) => it.pendiente <= EPS);
   const alguna = items.some((it) => it.entregado > EPS);
-  const vence = sumarDias(o.notificacion || o.fecha, o.plazoDias);
   let estado = completa ? 'Entregada' : alguna ? 'Parcial' : 'Pendiente';
   if (o.cerrada && !completa) estado = 'Cerrada';
-  const vencida = !completa && !o.cerrada && vence < hoy();
+  const vencida = !completa && !o.cerrada && Boolean(vence) && vence < hoy();
   return { items, total, totalEntregado, costo, estado, vence, vencida, avance: total > 0 ? totalEntregado / total : 0 };
 }
 
+const ABIERTAS = ['Pendiente', 'Parcial', 'En ejecución'];
+
 function etiquetaEstado(e) {
-  const clase = { Entregada: 'e-verde', Parcial: 'e-ambar', Pendiente: 'e-azul', Cerrada: 'e-verde' }[e.estado];
+  const clase = { Entregada: 'e-verde', Culminada: 'e-verde', Parcial: 'e-ambar', 'En ejecución': 'e-ambar', Pendiente: 'e-azul', Cerrada: 'e-verde' }[e.estado];
   return `<span class="etiqueta ${clase}">${e.estado}</span>${e.vencida ? ' <span class="etiqueta e-rojo">Vencida</span>' : ''}`;
 }
 
@@ -1239,7 +1327,7 @@ function render() {
   $('#app').innerHTML = vista(...args);
   pintarMarca();
   pintarSelectorVista();
-  const activa = { orden: 'ordenes', 'nueva-orden': 'ordenes', 'editar-orden': 'ordenes', entrega: 'ordenes', kardex: 'stock', material: 'stock', factura: 'facturas', conteo: 'stock', 'nuevo-mov': 'movimientos' }[ruta] || ruta;
+  const activa = { 'salida-os': 'ordenes', orden: 'ordenes', 'nueva-orden': 'ordenes', 'editar-orden': 'ordenes', entrega: 'ordenes', kardex: 'stock', material: 'stock', factura: 'facturas', conteo: 'stock', 'nuevo-mov': 'movimientos' }[ruta] || ruta;
   $$('#menu a').forEach((a) => a.classList.toggle('activo', a.getAttribute('href') === '#' + (vistas[activa] ? activa : 'resumen')));
   $('#lateral').classList.remove('abierto');
   if (alMontar) alMontar();
@@ -1337,15 +1425,16 @@ function avisoEn(form, mensaje, tipo = 'error') {
 vistas.resumen = () => {
   const calc = calcular();
   const estados = ordenesVista().map((o) => ({ o, e: estadoOrden(o, calc) }));
-  const abiertas = estados.filter(({ e }) => e.estado === 'Pendiente' || e.estado === 'Parcial');
+  const abiertas = estados.filter(({ e }) => ABIERTAS.includes(e.estado));
+  const porEntregarTotal = abiertas.reduce((a, { e }) => a + e.total - e.totalEntregado, 0);
   const valorStock = [...calc.mats.values()].reduce((a, s) => a + Math.max(0, s.valor), 0);
   const bajoMinimo = db.materiales.filter((m) => m.minimo > 0 && (calc.mats.get(m.id)?.stock || 0) < m.minimo);
   const negativos = db.materiales.filter((m) => calc.mats.get(m.id)?.negativo);
-  const f = franjaOrdenes(abiertas, calc);
+  const f = franjaOrdenes(abiertas.filter(({ o }) => !esOS(o)), calc);
   const sem = semanasPanel(periodoPanel);
   const compraPeriodo = sem.compras.reduce((a, v) => a + v, 0);
   const entregaPeriodo = sem.entregas.reduce((a, v) => a + v, 0);
-  const cuenta = (est) => estados.filter(({ e }) => e.estado === est).length;
+  const cuenta = (...est) => estados.filter(({ e }) => est.includes(e.estado)).length;
   const vencidas = estados.filter(({ e }) => e.vencida).length;
 
   const avance = estados.filter(({ e }) => e.estado !== 'Cerrada')
@@ -1375,7 +1464,7 @@ vistas.resumen = () => {
     </div>
     <div class="panel">
       <div class="kpis">
-        <a class="kpi" href="#ordenes"><span class="icono-kpi">${icono('camion')}</span><div><b>${soles(totalFranja - f.entregado)}</b><span>Por entregar · ${abiertas.length} O/C</span></div></a>
+        <a class="kpi" href="#ordenes"><span class="icono-kpi">${icono('camion')}</span><div><b>${soles(porEntregarTotal)}</b><span>Por entregar · ${abiertas.length} orden(es)</span></div></a>
         <a class="kpi" href="#stock"><span class="icono-kpi">${icono('caja')}</span><div><b>${soles(valorStock)}</b><span>Valor del stock</span></div></a>
         <a class="kpi" href="#movimientos"><span class="icono-kpi">${icono('tendencia')}</span><div><b>${soles(entregaPeriodo)}</b><span>Entregado en el periodo</span></div></a>
         <a class="kpi" href="#movimientos"><span class="icono-kpi">${icono('dinero')}</span><div><b>${soles(compraPeriodo)}</b><span>Comprado en el periodo</span></div></a>
@@ -1393,15 +1482,15 @@ vistas.resumen = () => {
 
     <div class="rejilla-3">
       <div class="panel">
-        <div class="cabecera-grafico"><h2>Avance de entrega por O/C</h2></div>
+        <div class="cabecera-grafico"><h2>Avance por orden</h2></div>
         ${graficoBarrasH(avance.map(({ o, e }) => ({
-          etiqueta: `O/C ${o.numero} · ${o.entidad}`,
+          etiqueta: `${nombreOrden(o)} · ${o.entidad}`,
           valor: e.avance * 100,
           texto: fmt(e.avance * 100, 0) + '%',
           enlace: '#orden/' + o.id,
-          tip: { t: `O/C ${o.numero} · ${e.estado}${e.vencida ? ' · vencida' : ''}`, f: [[soles(e.totalEntregado), 'entregado', 'var(--s-azul)'], [soles(e.total), 'total de la O/C', '']] },
+          tip: { t: `${nombreOrden(o)} · ${e.estado}${e.vencida ? ' · vencida' : ''}`, f: [[soles(e.totalEntregado), esOS(o) ? 'con conformidad' : 'entregado', 'var(--s-azul)'], [soles(e.total), 'total de la orden', '']] },
         })), { max: 100 })}
-        ${tablaDatos(['O/C', 'Avance', 'Entregado', 'Total'], avance.map(({ o, e }) => [o.numero, fmt(e.avance * 100, 0) + '%', soles(e.totalEntregado), soles(e.total)]))}
+        ${tablaDatos(['Orden', 'Avance', 'Entregado', 'Total'], avance.map(({ o, e }) => [nombreOrden(o), fmt(e.avance * 100, 0) + '%', soles(e.totalEntregado), soles(e.total)]))}
       </div>
       <div class="panel">
         <div class="cabecera-grafico"><h2>Materiales con más valor en stock</h2></div>
@@ -1418,8 +1507,8 @@ vistas.resumen = () => {
         <div class="cabecera-grafico"><h2>Estado de las órdenes</h2></div>
         <div class="estados">
           <a class="estado-oc" href="#ordenes"><b>${cuenta('Pendiente')}</b><span class="etiqueta e-azul">Pendientes</span></a>
-          <a class="estado-oc" href="#ordenes"><b>${cuenta('Parcial')}</b><span class="etiqueta e-ambar">Parciales</span></a>
-          <a class="estado-oc" href="#ordenes"><b>${cuenta('Entregada')}</b><span class="etiqueta e-verde">✔ Entregadas</span></a>
+          <a class="estado-oc" href="#ordenes"><b>${cuenta('Parcial', 'En ejecución')}</b><span class="etiqueta e-ambar">Parciales / en ejecución</span></a>
+          <a class="estado-oc" href="#ordenes"><b>${cuenta('Entregada', 'Culminada')}</b><span class="etiqueta e-verde">✔ Entregadas / culminadas</span></a>
           <a class="estado-oc" href="#ordenes"><b>${vencidas}</b><span class="etiqueta e-rojo">⚠ Vencidas</span></a>
         </div>
         ${(() => { const r = resumenPorPagar(); return r.lista.length ? `<a class="estado-oc" href="#facturas" data-accion="ver-por-pagar" style="display:block;margin-top:10px"><b style="font-size:20px">${soles(r.total)}</b><span class="etiqueta ${r.vencidas.length ? 'e-rojo' : 'e-ambar'}">${r.vencidas.length ? '⚠ ' : ''}Por pagar a proveedores · ${r.lista.length} factura(s)</span><br><span class="suave">Próximo vencimiento: ${fechaPe(r.lista.map((f) => f.vence).sort()[0])}</span></a>` : ''; })()}
@@ -1508,21 +1597,28 @@ function semanasPanel(n) {
       if (it) entregas[i] += (mv.tipo === 'SALIDA' ? 1 : -1) * num(mv.cantidad) * it.pu;
     }
   }
+  for (const o of ordenesVista().filter(esOS)) {
+    for (const sv of o.servicios || []) {
+      if (!sv.conformidad || sv.conformidad < inicio) continue;
+      const i = Math.floor((new Date(sv.conformidad + 'T12:00:00') - new Date(inicio + 'T12:00:00')) / (7 * 864e5));
+      if (i >= 0 && i < n) entregas[i] += sv.cant * sv.pu;
+    }
+  }
   return { etiquetas, titulos, compras: compras.map((v) => redondear(v, 2)), entregas: entregas.map((v) => redondear(v, 2)) };
 }
 
 function tablaOrdenes(lista) {
   return `<div class="tabla-envoltura"><table>
-    <thead><tr><th>O/C</th><th>Fecha</th><th>Entidad / referencia</th><th class="n">Total</th><th class="n">Entregado</th><th>Avance</th><th>Vence (ref.)</th><th>Estado</th></tr></thead>
+    <thead><tr><th>Orden</th><th>Fecha</th><th>Entidad / referencia</th><th class="n">Total</th><th class="n">Entregado</th><th>Avance</th><th>Vence (ref.)</th><th>Estado</th></tr></thead>
     <tbody>${lista.map(({ o, e }) => `
       <tr>
-        <td><a href="#orden/${o.id}"><b>${esc(o.numero)}</b></a></td>
+        <td style="white-space:nowrap"><a href="#orden/${o.id}"><b>${esc(nombreOrden(o))}</b></a></td>
         <td>${fechaPe(o.fecha)}</td>
         <td>${esc(o.entidad)}<br><span class="suave">${esc(o.referencia)}</span></td>
         <td class="n">${soles(e.total)}</td>
         <td class="n">${soles(e.totalEntregado)}</td>
         <td>${barra(e.avance)}<span class="suave">${fmt(e.avance * 100, 0)}%</span></td>
-        <td>${fechaPe(e.vence)}</td>
+        <td>${e.vence ? fechaPe(e.vence) : `<span class="suave">${esc(o.plazoTexto || '—')}</span>`}</td>
         <td>${etiquetaEstado(e)}</td>
       </tr>`).join('')}</tbody></table></div>`;
 }
@@ -1533,14 +1629,15 @@ vistas.ordenes = () => {
   const calc = calcular();
   const lista = [...ordenesVista()].sort((a, b) => (b.fecha || '').localeCompare(a.fecha || '') || b.numero.localeCompare(a.numero)).map((o) => ({ o, e: estadoOrden(o, calc) }));
   return `
-    <div class="fila"><h1>Órdenes de compra recibidas</h1><span class="espacio"></span>
-      <a class="btn primario" href="#nueva-orden">+ Nueva O/C</a></div>
+    <div class="fila"><h1>Órdenes de compra y de servicio</h1><span class="espacio"></span>
+      <a class="btn primario" href="#nueva-orden">+ Nueva orden</a></div>
     <div class="panel">${lista.length ? tablaOrdenes(lista) : '<p class="suave">Aún no registras órdenes.</p>'}</div>`;
 };
 
 vistas.orden = (id) => {
   const o = orden(id);
   if (!o) return '<p class="alerta error">No se encontró la orden.</p>';
+  if (esOS(o)) return vistaOrdenServicio(o);
   const calc = calcular();
   const e = estadoOrden(o, calc);
   const movs = db.movimientos.filter((m) => m.ordenId === o.id).sort(ordenCrono);
@@ -1667,8 +1764,11 @@ vistas['nueva-orden'] = () => formOrden(null);
 vistas['editar-orden'] = (id) => formOrden(orden(id));
 
 function formOrden(o) {
-  const v = o || { numero: '', fecha: hoy(), notificacion: hoy(), plazoDias: 5, entidad: '', rucEntidad: '', referencia: '', siaf: '', area: '', enviarA: '', meta: '', obs: '', totalDeclarado: '', items: [] };
-  const items = v.items.map((it) => ({ ...it, descripcion: material(it.materialId)?.descripcion || '' }));
+  const v = o || { tipo: 'OC', numero: '', fecha: hoy(), notificacion: hoy(), plazoDias: 5, plazoTexto: '', formaPago: '', entidad: '', rucEntidad: '', referencia: '', siaf: '', area: '', enviarA: '', meta: '', obs: '', totalDeclarado: '', items: [] };
+  // En una O/S las filas del formulario son los servicios o entregables; sus materiales previstos se editan en la O/S.
+  const items = esOS(v)
+    ? (v.servicios || []).map((sv) => ({ ...sv, fechaSv: sv.fecha }))
+    : v.items.map((it) => ({ ...it, descripcion: material(it.materialId)?.descripcion || '' }));
   alMontar = () => {
     const tb = $('#items-orden tbody');
     if (!items.length) for (let i = 0; i < 3; i++) tb.insertAdjacentHTML('beforeend', filaItemOrden({}));
@@ -1677,8 +1777,14 @@ function formOrden(o) {
   const campo = (n, etiqueta, tipo = 'text', extra = '') => `<label>${etiqueta}<input name="${n}" type="${tipo}" value="${esc(v[n])}" ${extra}></label>`;
   return `
     <p><a href="${o ? '#orden/' + o.id : '#ordenes'}">← Volver</a></p>
-    <h1>${o ? 'Editar O/C ' + esc(o.numero) : 'Nueva orden de compra recibida'}</h1>
-    <form data-form="orden" data-id="${o ? o.id : ''}">
+    <h1>${o ? `Editar ${esc(nombreOrden(o))}` : 'Nueva orden recibida'}</h1>
+    <form data-form="orden" data-id="${o ? o.id : ''}" class="${esOS(v) ? 'form-os' : 'form-oc'}">
+      ${o ? `<input type="hidden" name="tipo" value="${esc(v.tipo || 'OC')}">` : `
+      <div class="panel"><label style="max-width:420px">Tipo de orden
+        <select name="tipo" id="tipo-orden">
+          <option value="OC" ${!esOS(v) ? 'selected' : ''}>Orden de compra (O/C): entrego bienes</option>
+          <option value="OS" ${esOS(v) ? 'selected' : ''}>Orden de servicio (O/S): hago un trabajo o servicio</option>
+        </select></label></div>`}
       ${o ? '' : `
       <details class="panel">
         <summary>Leer la O/C escaneada con Claude (recomendado para órdenes largas)</summary>
@@ -1692,7 +1798,7 @@ function formOrden(o) {
       </details>`}
       <div class="panel">
         <div class="campos">
-          ${campo('numero', 'N° de O/C *', 'text', 'required')}
+          ${campo('numero', 'N° de orden *', 'text', 'required')}
           ${campo('fecha', 'Fecha de la O/C', 'date')}
           ${campo('notificacion', 'Fecha de notificación', 'date')}
           ${campo('plazoDias', 'Plazo de entrega (días)', 'number', 'min="0"')}
@@ -1703,6 +1809,9 @@ function formOrden(o) {
           ${campo('area', 'Área usuaria')}
           ${campo('enviarA', 'Entregar en')}
           ${campo('meta', 'Meta / obra')}
+          <label class="solo-os">Plazo (texto)<input name="plazoTexto" value="${esc(v.plazoTexto || '')}" placeholder="Según cronograma de obra"></label>
+          <label class="solo-os">Fecha límite<input name="fechaLimite" type="date" value="${esc(v.fechaLimite || '')}"></label>
+          <label class="solo-os ancho">Forma de pago<input name="formaPago" value="${esc(v.formaPago || '')}" placeholder="A la culminación, previa conformidad"></label>
           <label>Destino${selectorCentro('centro', v.centro || centroVista || 'obra')}</label>
           ${campo('totalDeclarado', 'Total S/ según la O/C', 'number', 'step="0.01"')}
           <label class="ancho">Observaciones<input name="obs" value="${esc(v.obs)}"></label>
@@ -1710,11 +1819,11 @@ function formOrden(o) {
         <datalist id="dl-entidades">${[...new Set(db.ordenes.map((x) => x.entidad))].map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
       </div>
       <div class="panel">
-        <h2 style="margin-top:0">Ítems</h2>
+        <h2 style="margin-top:0"><span class="solo-oc">Ítems (bienes a entregar)</span><span class="solo-os">Servicios o entregables</span></h2>
         <div class="tabla-envoltura"><table id="items-orden">
-          <thead><tr><th style="width:90px">Cant.</th><th style="width:100px">Unidad</th><th>Descripción</th><th style="width:120px">P. unit.</th><th class="n" style="width:110px">Importe</th><th></th></tr></thead>
+          <thead><tr><th style="width:90px">Cant.</th><th style="width:100px">Unidad</th><th>Descripción</th><th style="width:120px">P. unit.</th><th class="solo-os" style="width:150px">Fecha programada</th><th class="n" style="width:110px">Importe</th><th></th></tr></thead>
           <tbody>${items.map(filaItemOrden).join('')}</tbody>
-          <tfoot><tr><td colspan="4">Total <span id="dif-total" class="rojo"></span></td><td class="n" id="total-orden"></td><td></td></tr></tfoot>
+          <tfoot><tr><td colspan="4">Total <span id="dif-total" class="rojo"></span></td><td class="solo-os"></td><td class="n" id="total-orden"></td><td></td></tr></tfoot>
         </table></div>
         ${datalistMateriales()}
         <div class="fila" style="margin-top:8px"><button type="button" class="btn" data-accion="agregar-fila-orden">+ Agregar ítem</button></div>
@@ -1739,6 +1848,7 @@ function filaItemOrden(it) {
     <td><input name="unidad" list="dl-unidades" value="${esc(it.unidad || 'UND')}"></td>
     <td><input name="descripcion" list="dl-materiales" value="${esc(it.descripcion || '')}"></td>
     <td><input class="num" name="pu" type="number" step="any" min="0" value="${esc(it.pu ?? '')}"></td>
+    <td class="solo-os"><input name="fechaSv" type="date" value="${esc(it.fechaSv || '')}"></td>
     <td class="n importe"></td>
     <td><button type="button" class="btn chico peligro" data-accion="quitar-fila" title="Quitar">✕</button></td>
   </tr>`;
@@ -1863,13 +1973,16 @@ formularios.orden = (f) => {
     unidad: $('[name=unidad]', tr).value.trim().toUpperCase() || 'UND',
     descripcion: $('[name=descripcion]', tr).value.trim(),
     pu: num($('[name=pu]', tr).value),
+    fecha: $('[name=fechaSv]', tr)?.value || '',
   })).filter((x) => x.descripcion);
-  if (!datos.numero.trim() || !datos.entidad.trim()) return avisoEn(f, 'Completa el N° de O/C y la entidad.');
+  const tipo = datos.tipo === 'OS' ? 'OS' : 'OC';
+  if (!datos.numero.trim() || !datos.entidad.trim()) return avisoEn(f, 'Completa el N° de orden y la entidad.');
   if (!filas.length) return avisoEn(f, 'Agrega al menos un ítem.');
   if (filas.some((x) => x.cant <= 0)) return avisoEn(f, 'Todos los ítems deben tener cantidad mayor a cero.');
-  if (db.ordenes.some((x) => x.id !== id && x.numero.trim() === datos.numero.trim() && norm(x.entidad) === norm(datos.entidad))) {
-    return avisoEn(f, `Ya existe la O/C ${esc(datos.numero)} de esa entidad.`);
+  if (db.ordenes.some((x) => x.id !== id && (x.tipo || 'OC') === tipo && x.numero.trim() === datos.numero.trim() && norm(x.entidad) === norm(datos.entidad))) {
+    return avisoEn(f, `Ya existe la ${tipo === 'OS' ? 'O/S' : 'O/C'} ${esc(datos.numero)} de esa entidad.`);
   }
+  if (tipo === 'OS') return guardarOrdenServicio(f, o, datos, filas);
   const claves = filas.map((x) => norm(x.descripcion));
   if (new Set(claves).size !== claves.length) return avisoEn(f, 'Hay ítems con la misma descripción. Júntalos en una sola línea.');
 
@@ -1882,6 +1995,7 @@ formularios.orden = (f) => {
   }
   const items = filas.map((x) => ({ materialId: asegurarMaterial(x.descripcion, x.unidad).id, cant: x.cant, unidad: x.unidad, pu: x.pu }));
   const cabecera = {
+    tipo: 'OC',
     numero: datos.numero.trim(), fecha: datos.fecha, notificacion: datos.notificacion || datos.fecha, plazoDias: num(datos.plazoDias),
     entidad: datos.entidad.trim(), rucEntidad: datos.rucEntidad.trim(), referencia: datos.referencia.trim(), siaf: datos.siaf.trim(),
     area: datos.area.trim(), enviarA: datos.enviarA.trim(), meta: datos.meta.trim(), obs: datos.obs.trim(), totalDeclarado: num(datos.totalDeclarado) || '',
@@ -1899,6 +2013,29 @@ formularios.orden = (f) => {
   location.hash = '#orden/' + destino;
 };
 
+function guardarOrdenServicio(f, o, datos, filas) {
+  // Conserva la conformidad de los entregables que no cambiaron de descripción.
+  const previas = new Map((o?.servicios || []).map((sv) => [norm(sv.descripcion), sv.conformidad]));
+  const servicios = filas.map((x) => ({ cant: x.cant, unidad: x.unidad === 'UND' ? 'SERVICIO' : x.unidad, descripcion: x.descripcion, pu: x.pu, fecha: x.fecha, conformidad: previas.get(norm(x.descripcion)) || '' }));
+  const cabecera = {
+    tipo: 'OS', numero: datos.numero.trim(), fecha: datos.fecha, notificacion: datos.notificacion || datos.fecha, plazoDias: num(datos.plazoDias) || null,
+    plazoTexto: (datos.plazoTexto || '').trim(), fechaLimite: datos.fechaLimite || '', formaPago: (datos.formaPago || '').trim(),
+    entidad: datos.entidad.trim(), rucEntidad: datos.rucEntidad.trim(), referencia: datos.referencia.trim(), siaf: datos.siaf.trim(),
+    area: datos.area.trim(), enviarA: datos.enviarA.trim(), meta: datos.meta.trim(), obs: datos.obs.trim(), totalDeclarado: num(datos.totalDeclarado) || '',
+    centro: datos.centro || 'obra',
+  };
+  let destino;
+  if (o) {
+    Object.assign(o, cabecera, { servicios });
+    destino = o.id;
+  } else {
+    destino = uid();
+    db.ordenes.push({ id: destino, ...cabecera, servicios, items: [], gastos: [], enEjecucion: false, creado: Date.now() });
+  }
+  guardar();
+  location.hash = '#orden/' + destino;
+}
+
 // ---------- Por comprar ----------
 
 function listaPorComprar(calc) {
@@ -1910,7 +2047,7 @@ function listaPorComprar(calc) {
       if (it.pendiente <= EPS) continue;
       const r = req.get(it.materialId) || { materialId: it.materialId, pendiente: 0, ordenes: [] };
       r.pendiente += it.pendiente;
-      r.ordenes.push(o.numero);
+      r.ordenes.push(nombreOrden(o));
       req.set(it.materialId, r);
     }
   }
@@ -1986,8 +2123,8 @@ vistas.compra = (modo, id) => {
         <label>Forma de pago<select name="formaPago"><option value="CONTADO">Contado</option><option value="CREDITO">Crédito</option></select></label>
         <label>Vence (si es crédito)<input name="vence" type="date"></label>
         <label>Destino *${selectorCentro('centro', orden(ordenSel)?.centro || centroVista || 'obra')}</label>
-        <label>Para la O/C (opcional)<select name="ordenId" data-fija-centro><option value="">— Sin O/C —</option>
-          ${db.ordenes.map((o) => `<option value="${o.id}" data-centro="${o.centro}" ${o.id === ordenSel ? 'selected' : ''}>${esc(o.numero)} · ${esc(o.entidad)}</option>`).join('')}</select></label>
+        <label>Para la orden (opcional)<select name="ordenId" data-fija-centro><option value="">— Sin O/C —</option>
+          ${db.ordenes.map((o) => `<option value="${o.id}" data-centro="${o.centro}" ${o.id === ordenSel ? 'selected' : ''}>${esc(nombreOrden(o))} · ${esc(o.entidad)}</option>`).join('')}</select></label>
         <label class="ancho">Observaciones<input name="obs"></label>
       </div>
       <datalist id="dl-proveedores">${[...new Set(db.movimientos.filter((m) => m.tipo === 'ENTRADA' && m.tercero).map((m) => m.tercero))].map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
@@ -2036,6 +2173,15 @@ document.addEventListener('change', (ev) => {
   const c = ev.target.selectedOptions[0]?.dataset.centro;
   const sel = ev.target.form?.elements.centro;
   if (c && sel) sel.value = c;
+});
+
+// Cambiar el tipo de orden muestra los campos de O/C o de O/S.
+document.addEventListener('change', (ev) => {
+  if (ev.target.id !== 'tipo-orden') return;
+  const f = ev.target.form;
+  f.classList.toggle('form-os', ev.target.value === 'OS');
+  f.classList.toggle('form-oc', ev.target.value !== 'OS');
+  if (ev.target.value === 'OS') $$('#items-orden [name=unidad]').forEach((u) => { if (u.value === 'UND') u.value = 'SERVICIO'; });
 });
 
 // Al elegir un material existente, completa su unidad.
@@ -2268,11 +2414,261 @@ acciones['anular-factura'] = (b) => {
   render();
 };
 
+// ---------- Órdenes de servicio ----------
+// Una O/S no entrega bienes: consume materiales del almacén y otros gastos, y se cobra por entregable con su conformidad.
+
+function vistaOrdenServicio(o) {
+  const calc = calcular(db.movimientos);
+  const e = estadoOrden(o, calc);
+  const movs = db.movimientos.filter((m) => m.ordenId === o.id).sort(ordenCrono);
+  const grupos = agruparPorDocumento(movs);
+  const margen = e.total - e.costo;
+  const gastos = o.gastos || [];
+  return `
+    <p><a href="#ordenes">← Órdenes</a></p>
+    <div class="fila"><h1>O/S N° ${esc(o.numero)} ${etiquetaEstado(e)} ${etiquetaCentro(o.centro)}</h1><span class="espacio"></span>
+      ${e.estado === 'Culminada' || e.estado === 'Cerrada' ? '' : `
+        ${e.items.some((it) => it.faltaComprar > EPS) ? `<a class="btn" href="#compra/oc/${o.id}">Registrar compra</a>` : ''}
+        <a class="btn primario" href="#salida-os/${o.id}">Registrar salida de materiales</a>`}
+    </div>
+    ${o.totalDeclarado && Math.abs(e.total - o.totalDeclarado) > 0.05 ? `<p class="alerta aviso">La suma de los servicios (${soles(e.total)}) no coincide con el total de la O/S (${soles(o.totalDeclarado)}).</p>` : ''}
+    <div class="panel"><div class="campos">
+      <div><label>Entidad</label>${esc(o.entidad)} <span class="suave">RUC ${esc(o.rucEntidad)}</span></div>
+      <div><label>Fecha de la O/S</label>${fechaPe(o.fecha)}</div>
+      <div><label>Plazo</label>${esc(o.plazoTexto || (o.plazoDias ? o.plazoDias + ' días' : '—'))}${e.vence ? ` · hasta ${fechaPe(e.vence)}` : ''}</div>
+      <div><label>Referencia</label>${esc(o.referencia)}</div>
+      <div><label>SIAF</label>${esc(o.siaf)}</div>
+      <div><label>Área usuaria</label>${esc(o.area)}</div>
+      <div class="ancho"><label>Lugar</label>${esc(o.enviarA)}</div>
+      <div class="ancho"><label>Forma de pago</label>${esc(o.formaPago || '—')}</div>
+      <div><label>Meta</label>${esc(o.meta)}</div>
+      ${o.obs ? `<div class="ancho"><label>Observaciones</label>${esc(o.obs)}</div>` : ''}
+    </div></div>
+    <div class="tarjetas">
+      <div class="tarjeta"><b>${soles(e.total)}</b><span>total de la O/S</span></div>
+      <div class="tarjeta"><b>${soles(e.totalEntregado)}</b><span>con conformidad (${fmt(e.avance * 100, 0)}%)</span></div>
+      <div class="tarjeta"><b>${soles(e.costoMateriales)}</b><span>materiales usados</span></div>
+      <div class="tarjeta"><b>${soles(e.gastos)}</b><span>otros gastos</span></div>
+      <div class="tarjeta"><b class="${margen < 0 ? 'rojo' : 'verde'}">${soles(margen)}</b><span>margen (total − costos)</span></div>
+    </div>
+
+    <div class="panel">
+      <div class="fila"><h2 class="sin-margen">Servicio y entregables</h2><span class="espacio"></span>
+        ${e.estado === 'Pendiente' ? `<button class="btn chico" data-accion="iniciar-os" data-id="${o.id}">Marcar en ejecución</button>` : ''}</div>
+      <div class="tabla-envoltura"><table>
+        <thead><tr><th>#</th><th>Descripción</th><th>Fecha programada</th><th class="n">Importe</th><th>Conformidad</th></tr></thead>
+        <tbody>${(o.servicios || []).map((sv, i) => `<tr>
+          <td>${i + 1}</td><td>${esc(sv.descripcion)}</td>
+          <td style="white-space:nowrap">${sv.fecha ? fechaPe(sv.fecha) : '—'}${!sv.conformidad && sv.fecha && sv.fecha < hoy() ? ' <span class="etiqueta e-rojo">⚠ Pasó la fecha</span>' : ''}</td>
+          <td class="n">${soles(sv.cant * sv.pu)}</td>
+          <td style="white-space:nowrap">${sv.conformidad
+            ? `<span class="etiqueta e-verde">✔ ${fechaPe(sv.conformidad)}</span> <button class="btn chico" data-accion="quitar-conformidad" data-id="${o.id}" data-i="${i}">Quitar</button>`
+            : `<button class="btn chico primario" data-accion="dar-conformidad" data-id="${o.id}" data-i="${i}">Dar conformidad</button>`}</td>
+        </tr>`).join('')}</tbody>
+        <tfoot><tr><td colspan="3">Total</td><td class="n">${soles(e.total)}</td><td></td></tr></tfoot>
+      </table></div>
+      <p class="suave" style="margin-bottom:0">Marca la conformidad cuando la entidad reciba cada entregable. Con todos conformes, la O/S queda <b>Culminada</b> y lista para facturar.</p>
+    </div>
+
+    <div class="panel">
+      <h2 class="sin-margen">Materiales previstos</h2>
+      ${e.items.length ? `<div class="tabla-envoltura"><table>
+        <thead><tr><th>Material</th><th>Und</th><th class="n">Previsto</th><th class="n">Salió</th><th class="n">Pendiente</th><th class="n">Stock</th><th class="n">Falta comprar</th><th></th></tr></thead>
+        <tbody>${e.items.map((it, i) => `<tr>
+          <td><a href="#kardex/${it.materialId}">${esc(material(it.materialId)?.descripcion)}</a></td><td>${esc(it.unidad)}</td>
+          <td class="n">${cant(it.cant)}</td><td class="n">${cant(it.entregado)}</td><td class="n">${it.pendiente > EPS ? `<b>${cant(it.pendiente)}</b>` : '<span class="verde">✔</span>'}</td>
+          <td class="n">${cant(it.stock)}</td><td class="n ${it.faltaComprar > EPS ? 'rojo' : ''}">${it.faltaComprar > EPS ? cant(it.faltaComprar) : '—'}</td>
+          <td>${it.entregado > EPS ? '' : `<button class="btn chico peligro" data-accion="quitar-previsto" data-id="${o.id}" data-i="${i}" title="Quitar">✕</button>`}</td>
+        </tr>`).join('')}</tbody></table></div>` : '<p class="suave">Sin materiales previstos. Agrégalos para verlos en «Por comprar».</p>'}
+      <form data-form="previsto" data-id="${o.id}" class="fila" style="margin-top:10px">
+        <input name="descripcion" list="dl-materiales" placeholder="Material (elige o escribe uno nuevo)" style="flex:3;min-width:200px" required>
+        <input name="cant" type="number" step="any" min="0" placeholder="Cantidad" style="flex:1;min-width:90px" required>
+        <input name="unidad" list="dl-unidades" value="UND" style="flex:1;min-width:80px">
+        <button class="btn">+ Agregar previsto</button>
+      </form>
+      ${datalistMateriales()}
+    </div>
+
+    <div class="panel">
+      <h2 class="sin-margen">Otros gastos (mano de obra, transporte, servicios de terceros…)</h2>
+      ${gastos.length ? `<div class="tabla-envoltura"><table>
+        <thead><tr><th>Fecha</th><th>Concepto</th><th>Documento</th><th class="n">Monto</th><th></th></tr></thead>
+        <tbody>${gastos.map((g) => `<tr class="${g.anulado ? 'anulado' : ''}">
+          <td>${fechaPe(g.fecha)}</td><td>${esc(g.concepto)}</td><td>${esc(g.documento)}</td><td class="n">${soles(num(g.monto))}</td>
+          <td>${g.anulado ? `<span class="rojo">${esc(g.motivo || 'Anulado')}</span>` : `<button class="btn chico peligro" data-accion="anular-gasto" data-id="${o.id}" data-g="${g.id}">Anular</button>`}</td></tr>`).join('')}</tbody>
+        <tfoot><tr><td colspan="3">Total</td><td class="n">${soles(e.gastos)}</td><td></td></tr></tfoot></table></div>` : '<p class="suave">Sin gastos registrados.</p>'}
+      <form data-form="gasto" data-id="${o.id}" class="fila" style="margin-top:10px">
+        <input name="fecha" type="date" value="${hoy()}" style="flex:1;min-width:140px">
+        <input name="concepto" placeholder="Concepto (p. ej. mano de obra instalación)" style="flex:3;min-width:200px" required>
+        <input name="documento" placeholder="Recibo / factura" style="flex:1;min-width:120px">
+        <input name="monto" type="number" step="0.01" min="0" placeholder="Monto S/" style="flex:1;min-width:100px" required>
+        <button class="btn">+ Agregar gasto</button>
+      </form>
+    </div>
+
+    <div class="panel">
+      <h2 class="sin-margen">Compras y salidas de almacén</h2>
+      ${grupos.length ? `<div class="tabla-envoltura"><table>
+        <thead><tr><th>Fecha</th><th>Tipo</th><th>Documento</th><th>Proveedor / recibe</th><th class="n">Ítems</th><th></th></tr></thead>
+        <tbody>${grupos.map((g) => `<tr class="${g.anulado ? 'anulado' : ''}">
+          <td>${fechaPe(g.fecha)}</td><td>${TIPOS[g.tipo]}</td><td>${g.movs[0].nroCompra ? `<a href="#factura/${g.clave}"><b>${nroCompra(g.movs[0].nroCompra)}</b></a> · ` : ''}${esc(g.documento)}</td>
+          <td>${esc(g.tercero)}${g.recibe ? `<br><span class="suave">${esc(g.recibe)}</span>` : ''}</td><td class="n">${g.movs.length}</td>
+          <td>${g.tipo === 'SALIDA' && !g.anulado ? `<button class="btn chico" data-accion="imprimir-acta" data-grupo="${g.clave}">Imprimir vale</button>` : ''}</td>
+        </tr>`).join('')}</tbody></table></div>` : '<p class="suave">Todavía no hay compras ni salidas para esta O/S.</p>'}
+    </div>
+    <div class="fila">
+      <a class="btn" href="#editar-orden/${o.id}">Editar O/S</a>
+      <button class="btn" data-accion="cerrar-orden" data-id="${o.id}">${o.cerrada ? 'Reabrir O/S' : 'Cerrar O/S sin culminar'}</button>
+      <span class="espacio"></span>
+      <button class="btn peligro" data-accion="eliminar-orden" data-id="${o.id}">Eliminar O/S</button>
+    </div>`;
+}
+
+acciones['iniciar-os'] = (b) => {
+  orden(b.dataset.id).enEjecucion = true;
+  guardar();
+  render();
+};
+
+acciones['dar-conformidad'] = (b) => {
+  const o = orden(b.dataset.id);
+  const sv = o.servicios[+b.dataset.i];
+  const fecha = prompt('Fecha de la conformidad (AAAA-MM-DD):', sv.fecha && sv.fecha <= hoy() ? sv.fecha : hoy());
+  if (!fecha) return;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha.trim())) return alert('Escribe la fecha como AAAA-MM-DD, por ejemplo ' + hoy());
+  sv.conformidad = fecha.trim();
+  guardar();
+  render();
+};
+
+acciones['quitar-conformidad'] = (b) => {
+  if (!confirm('¿Quitar la conformidad de este entregable?')) return;
+  orden(b.dataset.id).servicios[+b.dataset.i].conformidad = '';
+  guardar();
+  render();
+};
+
+formularios.previsto = (f) => {
+  const o = orden(f.dataset.id);
+  const d = Object.fromEntries(new FormData(f));
+  const c = num(d.cant);
+  if (!d.descripcion.trim() || c <= 0) return;
+  const m = asegurarMaterial(d.descripcion, d.unidad);
+  const it = o.items.find((x) => x.materialId === m.id);
+  if (it) it.cant = redondear(it.cant + c);
+  else o.items.push({ materialId: m.id, cant: c, unidad: m.unidad, pu: 0 });
+  guardar();
+  render();
+};
+
+acciones['quitar-previsto'] = (b) => {
+  const o = orden(b.dataset.id);
+  o.items.splice(+b.dataset.i, 1);
+  guardar();
+  render();
+};
+
+formularios.gasto = (f) => {
+  const o = orden(f.dataset.id);
+  const d = Object.fromEntries(new FormData(f));
+  if (!d.concepto.trim() || num(d.monto) <= 0) return;
+  o.gastos = o.gastos || [];
+  o.gastos.push({ id: uid(), fecha: d.fecha || hoy(), concepto: d.concepto.trim(), documento: d.documento.trim(), monto: num(d.monto) });
+  guardar();
+  render();
+};
+
+acciones['anular-gasto'] = (b) => {
+  const g = orden(b.dataset.id).gastos.find((x) => x.id === b.dataset.g);
+  const motivo = prompt(`Anular el gasto «${g.concepto}» de ${soles(num(g.monto))}. Escribe el motivo:`);
+  if (!motivo || !motivo.trim()) return;
+  Object.assign(g, { anulado: true, motivo: 'Anulado: ' + motivo.trim() });
+  guardar();
+  render();
+};
+
+vistas['salida-os'] = (id) => {
+  const o = orden(id);
+  if (!o) return '<p class="alerta error">No se encontró la orden.</p>';
+  const e = estadoOrden(o, calcular(db.movimientos));
+  const lineas = e.items.filter((it) => it.pendiente > EPS).map((it) => ({ materialId: it.materialId, cantidad: redondear(Math.max(0, Math.min(it.pendiente, it.stock))) }));
+  alMontar = () => { if (!lineas.length) acciones['agregar-linea-salida'](); };
+  return `
+    <p><a href="#orden/${o.id}">← ${esc(nombreOrden(o))}</a></p>
+    <h1>Salida de materiales · ${esc(nombreOrden(o))}</h1>
+    <form data-form="salida-os" data-id="${o.id}">
+      <div class="panel"><div class="campos">
+        <label>Fecha<input name="fecha" type="date" value="${hoy()}" required></label>
+        <label>Vale / guía N°<input name="documento" placeholder="VS-001"></label>
+        <label>Recibe (responsable)<input name="recibe"></label>
+        <label class="ancho">Observaciones<input name="obs"></label>
+      </div></div>
+      <div class="panel">
+        <p class="suave" style="margin-top:0">Puedes sacar cualquier material del almacén; los previstos ya vienen cargados con lo que hay en stock.</p>
+        <div class="tabla-envoltura"><table id="lineas-salida">
+          <thead><tr><th>Material</th><th class="n" style="width:110px">En stock</th><th style="width:120px">Cantidad</th><th></th></tr></thead>
+          <tbody>${lineas.map(filaSalida).join('')}</tbody>
+        </table></div>
+        ${datalistMateriales()}
+        <p><button type="button" class="btn" data-accion="agregar-linea-salida">+ Agregar material</button></p>
+      </div>
+      <div class="fila fin"><button class="btn primario">Guardar salida e imprimir vale</button></div>
+    </form>`;
+};
+
+function filaSalida(l) {
+  const m = l.materialId ? material(l.materialId) : null;
+  const st = m ? calcular(db.movimientos).mats.get(m.id)?.stock || 0 : '';
+  return `<tr>
+    <td><input name="descripcion" list="dl-materiales" value="${esc(m?.descripcion || '')}" placeholder="Busca un material del almacén"></td>
+    <td class="n stock-linea">${m ? `${cant(st)} ${esc(m.unidad)}` : ''}</td>
+    <td><input class="num" name="cantidad" type="number" step="any" min="0" value="${esc(l.cantidad ?? '')}"></td>
+    <td><button type="button" class="btn chico peligro" data-accion="quitar-fila-simple" title="Quitar">✕</button></td>
+  </tr>`;
+}
+
+acciones['agregar-linea-salida'] = () => $('#lineas-salida tbody').insertAdjacentHTML('beforeend', filaSalida({}));
+acciones['quitar-fila-simple'] = (b) => b.closest('tr').remove();
+
+// Al elegir un material en la salida, muestra su stock.
+document.addEventListener('change', (ev) => {
+  if (ev.target.name !== 'descripcion' || !ev.target.closest('#lineas-salida')) return;
+  const m = db.materiales.find((x) => norm(x.descripcion) === norm(ev.target.value));
+  const celda = ev.target.closest('tr').querySelector('.stock-linea');
+  celda.textContent = m ? `${cant(calcular(db.movimientos).mats.get(m.id)?.stock || 0)} ${m.unidad}` : 'No existe';
+});
+
+formularios['salida-os'] = (f) => {
+  const o = orden(f.dataset.id);
+  const d = Object.fromEntries(new FormData(f));
+  const filas = $$('#lineas-salida tbody tr').map((tr) => ({ descripcion: $('[name=descripcion]', tr).value.trim(), cantidad: num($('[name=cantidad]', tr).value) })).filter((x) => x.descripcion && x.cantidad > 0);
+  if (!filas.length) return avisoEn(f, 'Indica al menos un material con cantidad.');
+  const grupo = uid();
+  const ahora = Date.now();
+  const nuevos = [];
+  for (const x of filas) {
+    const m = db.materiales.find((mm) => norm(mm.descripcion) === norm(x.descripcion));
+    if (!m) return avisoEn(f, `«${esc(x.descripcion)}» no existe en el almacén. Regístralo primero con una compra.`);
+    nuevos.push({
+      id: uid(), grupo, creado: ahora + nuevos.length, fecha: d.fecha, tipo: 'SALIDA', materialId: m.id, cantidad: x.cantidad, costo: 0,
+      ordenId: o.id, documento: d.documento.trim(), tercero: o.entidad, recibe: d.recibe.trim(), obs: d.obs.trim(), centro: o.centro,
+    });
+  }
+  const neg = materialesEnNegativo([...db.movimientos, ...nuevos]).filter((m) => nuevos.some((n) => n.materialId === m.id));
+  if (neg.length) return avisoEn(f, `No alcanza el stock (a la fecha ${fechaPe(d.fecha)}) de: ${neg.map((m) => esc(m.descripcion)).join('; ')}.`);
+  db.movimientos.push(...nuevos);
+  if (!o.enEjecucion) o.enEjecucion = true;
+  guardar();
+  location.hash = '#orden/' + o.id;
+  setTimeout(() => imprimirActa(grupo), 300);
+};
+
 // ---------- Registrar entrega (salida contra O/C) ----------
 
 vistas.entrega = (id) => {
   const o = orden(id);
   if (!o) return '<p class="alerta error">No se encontró la orden.</p>';
+  if (esOS(o)) return vistas['salida-os'](id);
   const e = estadoOrden(o, calcular());
   const pendientes = e.items.filter((it) => it.pendiente > EPS);
   return `
@@ -2352,7 +2748,7 @@ vistas['nuevo-mov'] = (tipoInicial = 'DEVOLUCION', materialId = '') => {
         <label data-solo="ENTRADA">Costo unitario<input name="costo" type="number" step="any" min="0"></label>
         <label data-solo="ENTRADA">Unidad (si es material nuevo)<input name="unidad" list="dl-unidades" value="UND"></label>
         <label data-solo="SALIDA DEVOLUCION ENTRADA">O/C<select name="ordenId"><option value="">— Ninguna —</option>
-          ${db.ordenes.map((o) => `<option value="${o.id}">${esc(o.numero)} · ${esc(o.entidad)}</option>`).join('')}</select></label>
+          ${db.ordenes.map((o) => `<option value="${o.id}">${esc(nombreOrden(o))} · ${esc(o.entidad)}</option>`).join('')}</select></label>
         <label>Destino${selectorCentro('centro', centroVista || 'obra')}</label>
         <label>Documento<input name="documento" placeholder="Guía, factura, vale…"></label>
         <label>Proveedor / quién recibe o devuelve<input name="tercero"></label>
@@ -2389,8 +2785,8 @@ formularios.mov = (f) => {
   if (d.tipo === 'SALIDA' && ordenId) {
     const o = orden(ordenId);
     const it = estadoOrden(o, calcular()).items.find((x) => x.materialId === m.id);
-    if (!it) return avisoEn(f, 'Ese material no está en la O/C elegida.');
-    if (c > it.pendiente + EPS) return avisoEn(f, `En esa O/C solo quedan ${cant(it.pendiente)} pendientes de este material.`);
+    if (!it && !esOS(o)) return avisoEn(f, 'Ese material no está en la O/C elegida.');
+    if (it && !esOS(o) && c > it.pendiente + EPS) return avisoEn(f, `En esa O/C solo quedan ${cant(it.pendiente)} pendientes de este material.`);
   }
   const mov = {
     id: uid(), creado: Date.now(), fecha: d.fecha, tipo: d.tipo, materialId: m.id,
@@ -2417,7 +2813,7 @@ vistas.movimientos = () => {
       <a class="btn primario" href="#compra">Registrar compra</a></div>
     <div class="panel"><div class="campos" id="filtros-mov">
       <label>Tipo<select data-f="tipo"><option value="">Todos</option>${Object.entries(TIPOS).map(([k, t]) => `<option value="${k}" ${filtroMov.tipo === k ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
-      <label>O/C<select data-f="ordenId"><option value="">Todas</option>${db.ordenes.map((o) => `<option value="${o.id}" ${filtroMov.ordenId === o.id ? 'selected' : ''}>${esc(o.numero)}</option>`).join('')}</select></label>
+      <label>O/C<select data-f="ordenId"><option value="">Todas</option>${db.ordenes.map((o) => `<option value="${o.id}" ${filtroMov.ordenId === o.id ? 'selected' : ''}>${esc(nombreOrden(o))}</option>`).join('')}</select></label>
       <label>Buscar<input data-f="texto" value="${esc(filtroMov.texto)}" placeholder="material, documento, proveedor…"></label>
       <label>Desde<input type="date" data-f="desde" value="${filtroMov.desde}"></label>
       <label>Hasta<input type="date" data-f="hasta" value="${filtroMov.hasta}"></label>
@@ -2765,7 +3161,7 @@ vistas.config = () => `
   <div class="panel">
     <h2 style="margin-top:0">Otros</h2>
     <div class="fila">
-      <button class="btn" data-accion="recargar-iniciales">Volver a cargar las O/C 000062 y 000063</button>
+      <button class="btn" data-accion="recargar-iniciales">Volver a cargar las órdenes incluidas</button>
       <span class="espacio"></span>
       <button class="btn peligro" data-accion="borrar-todo">Borrar todos los datos</button>
     </div>
@@ -2837,9 +3233,9 @@ document.addEventListener('change', async (ev) => {
 });
 
 acciones['recargar-iniciales'] = () => {
-  const n = cargarOrdenesIniciales();
+  const n = cargarOrdenesIniciales({ forzar: true });
   guardar();
-  alert(n ? `Se cargaron ${n} O/C.` : 'Las dos O/C ya están registradas.');
+  alert(n.length ? `Se cargaron: ${n.join(', ')}.` : 'Todas las órdenes incluidas ya están registradas.');
   render();
 };
 
@@ -2872,7 +3268,7 @@ function imprimirActa(grupo) {
   const o = orden(movs[0].ordenId);
   const g = movs[0];
   const items = o ? o.items : [];
-  imprimir(`${cabeceraImpresion('ACTA DE ENTREGA DE BIENES')}
+  imprimir(`${cabeceraImpresion(esOS(o) ? `VALE DE SALIDA DE MATERIALES · ${nombreOrden(o)}` : 'ACTA DE ENTREGA DE BIENES')}
     <table style="margin-bottom:10px"><tbody>
       <tr><td><b>Entidad</b></td><td>${esc(o?.entidad)} · RUC ${esc(o?.rucEntidad)}</td><td><b>Fecha de entrega</b></td><td>${fechaPe(g.fecha)}</td></tr>
       <tr><td><b>Orden de compra</b></td><td>N° ${esc(o?.numero)} del ${fechaPe(o?.fecha)} · SIAF ${esc(o?.siaf)}</td><td><b>Guía de remisión</b></td><td>${esc(g.documento)}</td></tr>
@@ -2885,7 +3281,9 @@ function imprimirActa(grupo) {
       return `<tr><td>${i + 1}</td><td style="text-align:right">${cant(mv.cantidad)}</td><td>${esc(it?.unidad || material(mv.materialId)?.unidad)}</td><td>${esc(material(mv.materialId)?.descripcion)}</td></tr>`;
     }).join('')}</tbody></table>
     ${g.obs ? `<p><b>Observaciones:</b> ${esc(g.obs)}</p>` : ''}
-    <div class="firmas"><div>Entregué conforme<br>${esc(db.empresa.nombre)}</div><div>Recibí conforme<br>${esc(g.recibe || 'Nombre, cargo, firma y sello')}</div></div>`);
+    ${esOS(o)
+      ? `<div class="firmas"><div>Entregó (almacén)<br>${esc(db.empresa.nombre)}</div><div>Recibió<br>${esc(g.recibe || 'Responsable del servicio')}</div></div>`
+      : `<div class="firmas"><div>Entregué conforme<br>${esc(db.empresa.nombre)}</div><div>Recibí conforme<br>${esc(g.recibe || 'Nombre, cargo, firma y sello')}</div></div>`}`);
 }
 
 acciones['imprimir-acta'] = (b) => imprimirActa(b.dataset.grupo);

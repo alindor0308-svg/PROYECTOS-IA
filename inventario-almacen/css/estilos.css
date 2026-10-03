@@ -349,3 +349,6 @@ details.datos summary { font-weight: 500; color: var(--suave); }
 .bh-pista i { display: block; height: 14px; border-radius: 0 4px 4px 0; }
 .bh-fila:hover .bh-pista i { filter: brightness(1.15); }
 .bh-pista span { font-size: 13px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* ---------- Formulario de órdenes: campos de O/C u O/S ---------- */
+.form-oc .solo-os, .form-os .solo-oc { display: none; }

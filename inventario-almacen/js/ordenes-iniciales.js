@@ -1,6 +1,8 @@
 'use strict';
-// Órdenes de compra recibidas, transcritas de los PDF escaneados.
-// Cada ítem: [cantidad, unidad, descripción, precio unitario].
+// Órdenes de compra (O/C) y de servicio (O/S) recibidas, transcritas de los PDF escaneados.
+// O/C: cada ítem es [cantidad, unidad, descripción, precio unitario] de un bien a entregar.
+// O/S (tipo: 'OS'): "servicios" son las líneas o entregables facturables [cantidad, unidad, descripción, importe unitario, fecha programada?];
+// "items" son los materiales previstos para ejecutarla. Una O/S puede ir a un destino propio (centro + centroNombre).
 
 const ORDENES_INICIALES = [
   {
@@ -106,5 +108,54 @@ const ORDENES_INICIALES = [
       [14, 'UND', 'TABLA DE MADERA TORNILLO DE 1"*10"*3.00M', 102.5],
       [3, 'UND', 'PARANTE DE MADERA EUCALIPTO ROLLIZO DIAMETRO PROM.', 18.5],
     ],
+  },
+  {
+    tipo: 'OS',
+    numero: '000252',
+    fecha: '2026-10-01',
+    siaf: '610',
+    entidad: 'MUNICIPALIDAD DISTRITAL DE HUASO',
+    rucEntidad: '20211492687',
+    referencia: 'REQ. N°385-2026-MDH/SGI/EMVB',
+    area: 'SUB GERENCIA DE INFRAESTRUCTURA',
+    enviarA: 'PUESTO DE SALUD SATELITE CASERIO IDABUNGO, DISTRITO DE HUASO (CUI N° 2734158)',
+    meta: '0069 CONSTRUCCION DE CENTRO DE SALUD',
+    plazoDias: null,
+    plazoTexto: 'Según cronograma de obra, dentro del plazo de ejecución de obra',
+    formaPago: 'A la culminación del servicio, previa conformidad del área usuaria',
+    totalDeclarado: 2242,
+    servicios: [
+      [1, 'SERVICIO', 'SERVICIO DE SUMINISTRO, INSTALACION Y PUESTA EN FUNCIONAMIENTO DE UN (01) TANQUE BIODIGESTOR DE 1300 LT DE CAPACIDAD Y REGISTRO DE LODOS INCLUIDO ACCESORIOS, PARA EJECUCION DE LA OBRA "CONSTRUCCION DE EDIFICACION; EN EL (LA) CHINCHINVARA EN EL PUESTO DE SALUD SATELITE CASERIO IDABUNGO, DISTRITO DE HUASO, PROVINCIA JULCAN, DEPARTAMENTO LA LIBERTAD", CUI N° 2734158', 2242],
+    ],
+    items: [
+      [1, 'UND', 'TANQUE BIODIGESTOR DE 1300 LT', 0],
+      [1, 'UND', 'REGISTRO DE LODOS PARA BIODIGESTOR', 0],
+    ],
+  },
+  {
+    tipo: 'OS',
+    numero: '0003483',
+    fecha: '2026-09-10',
+    siaf: '0000010268',
+    entidad: 'GOBIERNO REGIONAL LA LIBERTAD',
+    rucEntidad: '20440374248',
+    referencia: 'Pedido de servicio N° 4780 · CP 4709 · Cuadro de adquisición N° 003525',
+    area: 'Dirección de la Casa de la Identidad Regional',
+    enviarA: 'Jr. Diego de Almagro N° 418, Casa de la Identidad Regional, Plaza de Armas de Trujillo',
+    meta: '0241 · Proyecto Casa de la Identidad',
+    plazoDias: null,
+    plazoTexto: 'En las fechas y horas de cada entregable',
+    fechaLimite: '2026-10-30',
+    formaPago: 'En soles, luego de la recepción formal y completa del servicio (art. 144 del Reglamento de la Ley N° 32069). Sujeto a penalidad.',
+    centro: 'refrigerios-grll',
+    centroNombre: 'Servicio de refrigerios – Gobierno Regional La Libertad (O/S 0003483)',
+    centroCorto: 'Refrigerios GRLL',
+    totalDeclarado: 2900,
+    // La O/S trae una sola línea de S/ 2,900 con dos entregables iguales; se reparte en dos para dar conformidad a cada uno.
+    servicios: [
+      [1, 'SERVICIO', 'ENTREGABLE 1: REFRIGERIOS 11/09/2026 10:00 A.M. — 100 UND. C/U DE EMPANADAS, TARTALETAS DE AJI DE GALLINA, MUSLITOS, BROCHETAS, SANDWICH DE MECHADO DE CERDO TIPO DOLAR Y ALFAJORCITOS', 1450, '2026-09-11'],
+      [1, 'SERVICIO', 'ENTREGABLE 2: REFRIGERIOS 30/10/2026 11:00 A.M. — 100 UND. C/U DE EMPANADAS, TARTALETAS DE AJI DE GALLINA, MUSLITOS, BROCHETAS, SANDWICH DE MECHADO DE CERDO TIPO DOLAR Y ALFAJORCITOS', 1450, '2026-10-30'],
+    ],
+    items: [],
   },
 ];

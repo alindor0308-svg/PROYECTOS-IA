@@ -40,6 +40,17 @@ Si cambias el código, vuelve a generar el archivo único con `python3 inventari
 
 Cada factura registrada recibe un **N° correlativo de compra** (C-0001, C-0002…) en orden de fecha, visible en «Facturas de compra», en Movimientos, en el kardex y en cada O/C. El número no cambia aunque la factura se anule. Desde el detalle de cada factura se puede imprimir su registro de compra o anularla completa.
 
+## Órdenes de servicio (O/S)
+
+Además de las O/C (entrega de bienes), la app maneja **órdenes de servicio**: un trabajo que se cobra al obtener la conformidad.
+
+- Cada O/S tiene sus **servicios o entregables** (con fecha programada y **conformidad** individual), sus **materiales previstos** (salen en «Por comprar»), las **salidas de almacén** hacia la O/S (con vale de salida imprimible) y **otros gastos** (mano de obra, transporte, insumos).
+- Estados: **Pendiente → En ejecución → Culminada** (todos los entregables conformes). Se marca **Vencida** si pasa la fecha de un entregable sin conformidad.
+- Muestra el **margen**: total de la O/S menos materiales usados y otros gastos.
+- Al registrar una orden nueva se elige el tipo: O/C u O/S.
+
+Órdenes incluidas: O/C 000062 y 000063 y O/S 000252 (biodigestor 1300 L, S/ 2,242.00) de la Municipalidad Distrital de Huaso, y O/S 0003483 del Gobierno Regional La Libertad (refrigerios en dos entregables, S/ 2,900.00, destino propio «Refrigerios GRLL»).
+
 ## Obra y empresa sin mezclar
 
 Cada factura, O/C y movimiento lleva un **destino**: «Obra C.S. Huaso (O/C 000062 y 000063)» o «Empresa (compras generales)». Arriba, el selector **Ver: Todo / Obra Huaso / Empresa** filtra el Panel, Órdenes, Por comprar, Facturas, Movimientos, Stock y Kardex. Al registrar una compra se elige el destino (si se elige una O/C, toma el de la O/C). Una factura sin O/C puede moverse de destino desde su detalle. Los destinos se renombran o se agregan en «Empresa y respaldo». La numeración de compras (C-0001…) es una sola para todos los destinos.
