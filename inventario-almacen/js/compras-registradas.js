@@ -92,7 +92,9 @@ const COMPRAS_REGISTRADAS = [
     ruc: '20605998021',
     documento: 'E001-83',
     fecha: '2026-09-30',
-    pago: 'CRÉDITO, vence 30/11/2026',
+    pago: 'CRÉDITO',
+    vence: '2026-11-30',
+    version: 2, // v2: tubos de desagüe 2" de 3 m y juegos de baño asociados a la O/C 000062
     total: 14922.46,
     items: [
       [3, 'UND', 'TUBO DE ABASTO 1/2 X1/2 METUSA', 12, { material: 'TUBO DE ABASTO DE ACERO INOXIDABLE 1/2"*1/2 L=35CM', oc: '000062' }],
@@ -102,11 +104,15 @@ const COMPRAS_REGISTRADAS = [
       [20, 'UND', 'TEE DE AGUA 3/4 EUROTUBO', 3, { material: 'TEE PVC SP DN 3/4', oc: '000062' }],
       [22, 'UND', 'ABRAZADERA 3/4 P/SUJETAR TUBO DE AGUA', 2.18],
       [10, 'UND', 'NIPLE 3/4 X 2', 2.5],
-      [50, 'UND', 'TUBO DE DESAGUE 2 PVC EUROTUBO', 10],
+      [50, 'UND', 'TUBO DE DESAGUE 2 PVC EUROTUBO (3 M)', 10, { material: 'TUBO PVC SP NTP 399.003 CLASE PESADA DN 2"', factor: 3, oc: '000062' }],
       [177, 'VARILLA', 'FIERRO CORRUGADO ACEROS AREQUIPA 1/2', 33.5],
       [50, 'UND', 'TARUGO DE PLASTICO NARANJA 3/8', 0.4, { material: 'TARUJO PLASTICO DE 3/8" (NARANJA)', oc: '000062' }],
       [12, 'UND', 'ANILLO DE CERA ANDICORP', 6, { material: 'ANILLO DE CERA CON GUIA PARA INODORO', oc: '000062' }],
-      [3, 'JGO', 'JUEGO DE BAÑO TAZA+TANQUE+LAVA CARA', 250],
+      // Cada juego = 1 inodoro + 1 lavamanos; el precio se reparte según los precios de la O/C (400 y 130).
+      [3, 'JGO', 'JUEGO DE BAÑO TAZA+TANQUE+LAVA CARA', 250, [
+        { material: 'INODORO ONEPIECE LOSA VITRIFICADA TANQUE BAJO COLOR BLANCO MODELO OXFORD O SIMILAR', oc: '000062', proporcion: 400 / 530 },
+        { material: 'LAVAMANOS DE LOZA VITRIFICADA BLANCA CON PEDESTAL', oc: '000062', proporcion: 130 / 530 },
+      ]],
       [6, 'PZA', 'REGISTRO DE BRONCE 4', 12, { material: 'REGISTRO DE BRONCE 4"', oc: '000062' }],
       [200, 'VARILLA', 'FIERRO CORRUGADO ACEROS AREQUIPA 3/8', 19],
       [30, 'UND', 'TUBO DE AGUA 3/4 PVC X 5 M', 10, { material: 'TUBO PVC NTP-399.002 SP DN 3/4 PN10', oc: '000062' }],

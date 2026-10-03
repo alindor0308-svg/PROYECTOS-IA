@@ -40,6 +40,10 @@ Si cambias el código, vuelve a generar el archivo único con `python3 inventari
 
 Cada factura registrada recibe un **N° correlativo de compra** (C-0001, C-0002…) en orden de fecha, visible en «Facturas de compra», en Movimientos, en el kardex y en cada O/C. El número no cambia aunque la factura se anule. Desde el detalle de cada factura se puede imprimir su registro de compra o anularla completa.
 
+## Facturas por pagar
+
+Las compras al crédito guardan su fecha de vencimiento. En «Facturas de compra» se ve el estado de pago (por pagar, vencida o pagada), se filtra «Solo por pagar» y se marca cada factura como pagada con fecha y medio de pago. El Panel muestra el total por pagar y el próximo vencimiento.
+
 ## Facturas de compra enviadas por chat
 
 Las facturas que el usuario envía en PDF se transcriben en `js/compras-registradas.js`. Al abrir la app, cada factura se agrega **una sola vez** como entrada al almacén (con proveedor, RUC, N° de comprobante y precios con IGV). No se duplica al reabrir, ni si ya estaba registrada a mano con el mismo N° de comprobante. Después de agregar facturas, se regenera `Inventario-Almacen.html`.
@@ -51,6 +55,8 @@ Las facturas que el usuario envía en PDF se transcriben en `js/compras-registra
 | 26/09/2026 | FFF1-00016116 | Inversiones Ferreteros Palermo E.I.R.L. (RUC 20559675807) | S/ 25.00 |
 | 27/09/2026 | FA38-00820427 | Homecenters Peruanos S.A. – Promart (RUC 20536557858) | S/ 79.00 |
 | 28/09/2026 | F001-00000962 | Comercializadora Aleyarí (RUC 20601224373) | S/ 275.00 |
-| 30/09/2026 | E001-83 | Inversiones y Contrataciones Luis E.I.R.L. (RUC 20605998021), al crédito | S/ 14,922.46 |
+| 30/09/2026 | E001-83 | Inversiones y Contrataciones Luis E.I.R.L. (RUC 20605998021), al crédito hasta el 30/11/2026 | S/ 14,922.46 |
+
+Un ítem puede repartirse en varios materiales (por ejemplo, un juego de baño = 1 inodoro + 1 lavamanos, con el precio repartido según la O/C). Si una factura ya cargada se corrige (campo `version`), al abrir la app se reemplazan sus ítems conservando su N° de compra.
 
 Los ítems que corresponden a una O/C se asocian al material de esa O/C (con conversión de unidades, por ejemplo tubos de 3 m a metros); la descripción original de la factura queda en la observación del movimiento.

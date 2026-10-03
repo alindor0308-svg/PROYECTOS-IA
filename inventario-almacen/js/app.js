@@ -126,31 +126,76 @@ function claveDocumento(doc) {
 function importarComprasRegistradas() {
   if (typeof COMPRAS_REGISTRADAS === 'undefined') return '';
   db.importados = db.importados || [];
+  db.versionesImportadas = db.versionesImportadas || {};
   const agregadas = [];
+  const actualizadas = [];
+  const problemas = [];
   for (const c of [...COMPRAS_REGISTRADAS].sort((a, b) => a.fecha.localeCompare(b.fecha))) {
     const clave = `COMPRA|${c.ruc}|${claveDocumento(c.documento)}`;
-    if (db.importados.includes(clave)) continue;
+    const version = c.version || 1;
+    if (db.importados.includes(clave)) {
+      // Factura ya cargada: si se corrigió (versión mayor), se reemplazan sus ítems conservando su N° de compra.
+      if (version <= (db.versionesImportadas[clave] || 1)) continue;
+      db.versionesImportadas[clave] = version;
+      const viejos = db.movimientos.filter((m) => m.origen === clave);
+      if (!viejos.length || viejos.some((m) => m.anulado)) continue; // registrada a mano o anulada: no se toca
+      const nuevos = movimientosDeCompra(c, clave, viejos[0].grupo, viejos[0].creado, viejos[0].nroCompra);
+      const prueba = [...db.movimientos.filter((m) => m.origen !== clave), ...nuevos];
+      const antes = new Set(materialesEnNegativo(db.movimientos).map((m) => m.id));
+      if (materialesEnNegativo(prueba).some((m) => !antes.has(m.id))) {
+        problemas.push(`${c.documento}: no se pudo actualizar porque ya se entregó parte de su material`);
+        continue;
+      }
+      db.movimientos = prueba;
+      quitarMaterialesHuerfanos(viejos.map((m) => m.materialId));
+      actualizadas.push(`${c.documento} de ${c.proveedor}`);
+      continue;
+    }
     db.importados.push(clave);
+    db.versionesImportadas[clave] = version;
     const yaEsta = db.movimientos.some((m) => m.tipo === 'ENTRADA' && !m.anulado && claveDocumento(m.documento) === claveDocumento(c.documento)
       && (!m.tercero || norm(m.tercero).includes(c.ruc) || norm(c.proveedor).split(' ').some((p) => p.length > 3 && norm(m.tercero).includes(p))));
     if (yaEsta) continue;
-    const grupo = uid();
-    const ahora = Date.now();
-    c.items.forEach(([cant, unidad, descripcion, precio, eq], i) => {
-      // Con equivalencia, el ítem entra al material del catálogo (p. ej. el de la O/C), convertido a su unidad.
-      const factor = eq?.factor || 1;
-      const mat = eq ? asegurarMaterial(eq.material, unidad) : asegurarMaterial(descripcion, unidad);
-      const oc = eq?.oc ? db.ordenes.find((o) => o.numero === eq.oc) : null;
-      db.movimientos.push({
-        id: uid(), grupo, creado: ahora + i, fecha: c.fecha, tipo: 'ENTRADA', materialId: mat.id,
-        cantidad: redondear(cant * factor), costo: redondear(precio / factor, 6), ordenId: oc ? oc.id : '', documento: c.documento, tercero: `${c.proveedor} (RUC ${c.ruc})`,
-        obs: (eq ? `En factura: ${cant} ${unidad} ${descripcion} a ${soles(precio)} c/u · ` : '') + `Pago ${c.pago || ''} · precios con IGV`, origen: clave,
-      });
-    });
+    db.movimientos.push(...movimientosDeCompra(c, clave, uid(), Date.now()));
     agregadas.push(`${c.documento} de ${c.proveedor} (${soles(c.total)})`);
   }
   guardar();
-  return agregadas.length ? `Se agregaron a tu inventario ${agregadas.length} factura(s) de compra: ${agregadas.join('; ')}.` : '';
+  const partes = [];
+  if (agregadas.length) partes.push(`Se agregaron a tu inventario ${agregadas.length} factura(s) de compra: ${agregadas.join('; ')}.`);
+  if (actualizadas.length) partes.push(`Se actualizaron: ${actualizadas.join('; ')}.`);
+  if (problemas.length) partes.push(problemas.join('. ') + '.');
+  return partes.join(' ').replace(/\.\./g, '.');
+}
+
+// Convierte una factura incluida en la app en movimientos de entrada.
+// Un ítem puede ir a un material del catálogo (equivalencia) o repartirse en varios (lista de equivalencias con "proporcion" del precio).
+function movimientosDeCompra(c, clave, grupo, creado, nro) {
+  const movs = [];
+  c.items.forEach(([cant, unidad, descripcion, precio, eq]) => {
+    const partes = !eq ? [null] : Array.isArray(eq) ? eq : [eq];
+    for (const parte of partes) {
+      const factor = parte?.factor || 1;
+      const proporcion = parte?.proporcion ?? 1;
+      const mat = asegurarMaterial(parte ? parte.material : descripcion, unidad);
+      const oc = parte?.oc ? db.ordenes.find((o) => o.numero === parte.oc) : null;
+      movs.push({
+        id: uid(), grupo, creado: creado + movs.length, fecha: c.fecha, tipo: 'ENTRADA', materialId: mat.id,
+        cantidad: redondear(cant * factor), costo: redondear((precio * proporcion) / factor, 6), ordenId: oc ? oc.id : '',
+        documento: c.documento, tercero: `${c.proveedor} (RUC ${c.ruc})`, formaPago: c.vence ? 'CREDITO' : 'CONTADO', vence: c.vence || '',
+        obs: (parte ? `En factura: ${cant} ${unidad} ${descripcion} a ${soles(precio)} c/u${partes.length > 1 ? ` (${fmt(proporcion * 100, 0)}% del precio)` : ''} · ` : '')
+          + `Pago ${c.pago || ''} · precios con IGV`,
+        origen: clave,
+        ...(nro ? { nroCompra: nro } : {}),
+      });
+    }
+  });
+  return movs;
+}
+
+// Borra del catálogo los materiales que quedaron sin movimientos y que no están en ninguna O/C.
+function quitarMaterialesHuerfanos(ids) {
+  const usados = new Set([...db.movimientos.map((m) => m.materialId), ...db.ordenes.flatMap((o) => o.items.map((it) => it.materialId))]);
+  db.materiales = db.materiales.filter((m) => !ids.includes(m.id) || usados.has(m.id));
 }
 
 function asegurarMaterial(descripcion, unidad) {
@@ -439,6 +484,7 @@ vistas.resumen = () => {
           <a class="estado-oc" href="#ordenes"><b>${cuenta('Entregada')}</b><span class="etiqueta e-verde">✔ Entregadas</span></a>
           <a class="estado-oc" href="#ordenes"><b>${vencidas}</b><span class="etiqueta e-rojo">⚠ Vencidas</span></a>
         </div>
+        ${(() => { const r = resumenPorPagar(); return r.lista.length ? `<a class="estado-oc" href="#facturas" data-accion="ver-por-pagar" style="display:block;margin-top:10px"><b style="font-size:20px">${soles(r.total)}</b><span class="etiqueta ${r.vencidas.length ? 'e-rojo' : 'e-ambar'}">${r.vencidas.length ? '⚠ ' : ''}Por pagar a proveedores · ${r.lista.length} factura(s)</span><br><span class="suave">Próximo vencimiento: ${fechaPe(r.lista.map((f) => f.vence).sort()[0])}</span></a>` : ''; })()}
         <p class="suave" style="margin-bottom:0">${bajoMinimo.length ? `<a href="#stock">${bajoMinimo.length} material(es) bajo su stock mínimo</a> · ` : ''}<a href="#por-comprar">Ver lista por comprar</a></p>
       </div>
     </div>
@@ -997,6 +1043,8 @@ vistas.compra = (modo, id) => {
         <label>Fecha de ingreso<input name="fecha" type="date" value="${hoy()}" required></label>
         <label>Proveedor<input name="tercero" list="dl-proveedores" placeholder="Nombre o RUC"></label>
         <label>Factura / boleta / guía N°<input name="documento" placeholder="F001-123"></label>
+        <label>Forma de pago<select name="formaPago"><option value="CONTADO">Contado</option><option value="CREDITO">Crédito</option></select></label>
+        <label>Vence (si es crédito)<input name="vence" type="date"></label>
         <label>Para la O/C (opcional)<select name="ordenId"><option value="">— Stock general —</option>
           ${db.ordenes.map((o) => `<option value="${o.id}" ${o.id === ordenSel ? 'selected' : ''}>${esc(o.numero)} · ${esc(o.entidad)}</option>`).join('')}</select></label>
         <label class="ancho">Observaciones<input name="obs"></label>
@@ -1058,6 +1106,7 @@ formularios.compra = (f) => {
     costo: num($('[name=costo]', tr).value),
   })).filter((x) => x.descripcion && x.cantidad > 0);
   if (!filas.length) return avisoEn(f, 'Agrega al menos un material con cantidad.');
+  if (d.formaPago === 'CREDITO' && !d.vence) return avisoEn(f, 'Indica la fecha de vencimiento del crédito.');
   const sinCosto = filas.filter((x) => !x.costo);
   if (sinCosto.length && !confirm(`${sinCosto.length} material(es) no tienen costo. ¿Guardar igual con costo 0?`)) return;
   const nuevos = filas.filter((x) => !db.materiales.some((m) => norm(m.descripcion) === norm(x.descripcion)));
@@ -1068,6 +1117,7 @@ formularios.compra = (f) => {
     db.movimientos.push({
       id: uid(), grupo, creado: ahora + i, fecha: d.fecha, tipo: 'ENTRADA', materialId: asegurarMaterial(x.descripcion, x.unidad).id,
       cantidad: x.cantidad, costo: x.costo, ordenId: d.ordenId, documento: d.documento.trim(), tercero: d.tercero.trim(), obs: d.obs.trim(),
+      formaPago: d.formaPago, vence: d.formaPago === 'CREDITO' ? d.vence : '',
     });
   });
   guardar();
@@ -1083,10 +1133,27 @@ function facturasDeCompra() {
     nro: g.movs[0].nroCompra || 0,
     total: g.movs.reduce((a, m) => a + num(m.cantidad) * num(m.costo), 0),
     ordenes: [...new Set(g.movs.map((m) => orden(m.ordenId)?.numero).filter(Boolean))],
+    vence: g.movs[0].vence || '',
+    pago: (db.pagos || {})[g.clave] || null,
   })).sort((a, b) => b.nro - a.nro);
 }
 
-const filtroFacturas = { texto: '', anuladas: false };
+const filtroFacturas = { texto: '', anuladas: false, porPagar: false };
+
+// Una factura al crédito está por pagar hasta que se marca como pagada.
+const porPagar = (f) => !f.anulado && f.vence && !f.pago;
+
+function etiquetaPago(f) {
+  if (!f.vence) return '<span class="suave">Contado</span>';
+  if (f.pago) return `<span class="etiqueta e-verde">✔ Pagada ${fechaPe(f.pago.fecha)}</span>`;
+  const vencida = f.vence < hoy();
+  return `<span class="etiqueta ${vencida ? 'e-rojo' : 'e-ambar'}">${vencida ? '⚠ Vencida' : 'Por pagar'} · ${fechaPe(f.vence)}</span>`;
+}
+
+function resumenPorPagar() {
+  const lista = facturasDeCompra().filter(porPagar);
+  return { lista, total: lista.reduce((a, f) => a + f.total, 0), vencidas: lista.filter((f) => f.vence < hoy()) };
+}
 
 vistas.facturas = () => {
   alMontar = pintarFacturas;
@@ -1098,8 +1165,10 @@ vistas.facturas = () => {
     <p class="suave">Cada factura recibe un N° correlativo de compra (C-0001, C-0002…) en orden de fecha. El número no cambia aunque la factura se anule.</p>
     <div class="panel"><div class="campos" id="filtros-facturas">
       <label>Buscar<input data-ff="texto" value="${esc(filtroFacturas.texto)}" placeholder="N° de compra, comprobante, proveedor, material…"></label>
+      <label><input type="checkbox" data-ff="porPagar" ${filtroFacturas.porPagar ? 'checked' : ''} style="width:auto"> Solo por pagar</label>
       <label><input type="checkbox" data-ff="anuladas" ${filtroFacturas.anuladas ? 'checked' : ''} style="width:auto"> Mostrar anuladas</label>
     </div></div>
+    ${(() => { const r = resumenPorPagar(); return r.lista.length ? `<p class="alerta ${r.vencidas.length ? 'error' : 'aviso'}">Por pagar: <b>${soles(r.total)}</b> en ${r.lista.length} factura(s) al crédito${r.vencidas.length ? ` · <b>${r.vencidas.length} vencida(s)</b>` : ''}. Próximo vencimiento: ${fechaPe(r.lista.map((f) => f.vence).sort()[0])}.</p>` : ''; })()}
     <div class="panel" id="lista-facturas"></div>`;
 };
 
@@ -1114,6 +1183,7 @@ function facturasFiltradas() {
   const t = norm(filtroFacturas.texto);
   return facturasDeCompra().filter((f) => {
     if (f.anulado && !filtroFacturas.anuladas) return false;
+    if (filtroFacturas.porPagar && !porPagar(f)) return false;
     if (!t) return true;
     return norm([nroCompra(f.nro), f.nro, f.documento, f.tercero, f.ordenes.join(' '), ...f.movs.map((m) => material(m.materialId)?.descripcion)].join(' ')).includes(t);
   });
@@ -1125,20 +1195,22 @@ function pintarFacturas() {
   const lista = facturasFiltradas();
   const total = lista.filter((f) => !f.anulado).reduce((a, f) => a + f.total, 0);
   cont.innerHTML = lista.length ? `<div class="tabla-envoltura"><table>
-    <thead><tr><th>N° compra</th><th>Fecha</th><th>Comprobante</th><th>Proveedor</th><th class="n">Ítems</th><th class="n">Total</th><th>O/C</th></tr></thead>
+    <thead><tr><th>N° compra</th><th>Fecha</th><th>Comprobante</th><th>Proveedor</th><th class="n">Ítems</th><th class="n">Total</th><th>Pago</th><th>O/C</th></tr></thead>
     <tbody>${lista.map((f) => `<tr class="${f.anulado ? 'anulado' : ''}">
       <td><a href="#factura/${f.clave}"><b>${nroCompra(f.nro)}</b></a></td>
       <td style="white-space:nowrap">${fechaPe(f.fecha)}</td><td style="white-space:nowrap">${esc(f.documento) || '<span class="suave">—</span>'}</td><td>${esc(f.tercero)}</td>
       <td class="n">${f.movs.length}</td><td class="n">${soles(f.total)}</td>
+      <td>${etiquetaPago(f)}</td>
       <td>${f.ordenes.map(esc).join(', ') || '<span class="suave">Stock general</span>'}</td>
     </tr>`).join('')}</tbody>
-    <tfoot><tr><td colspan="5">${lista.filter((f) => !f.anulado).length} factura(s)</td><td class="n">${soles(total)}</td><td></td></tr></tfoot>
+    <tfoot><tr><td colspan="5">${lista.filter((f) => !f.anulado).length} factura(s)</td><td class="n">${soles(total)}</td>
+      <td colspan="2">${lista.some(porPagar) ? `Por pagar: ${soles(lista.filter(porPagar).reduce((a, f) => a + f.total, 0))}` : ''}</td></tr></tfoot>
   </table></div>` : '<p class="suave">No hay facturas con ese filtro.</p>';
 }
 
 acciones['csv-facturas'] = () => {
-  const filas = [['N compra', 'Fecha', 'Comprobante', 'Proveedor', 'Items', 'Total', 'O/C', 'Anulada']];
-  for (const f of facturasFiltradas()) filas.push([nroCompra(f.nro), f.fecha, f.documento, f.tercero, f.movs.length, redondear(f.total, 2), f.ordenes.join(' '), f.anulado ? 'SI' : '']);
+  const filas = [['N compra', 'Fecha', 'Comprobante', 'Proveedor', 'Items', 'Total', 'Forma de pago', 'Vence', 'Pagada el', 'O/C', 'Anulada']];
+  for (const f of facturasFiltradas()) filas.push([nroCompra(f.nro), f.fecha, f.documento, f.tercero, f.movs.length, redondear(f.total, 2), f.vence ? 'CREDITO' : 'CONTADO', f.vence, f.pago?.fecha || '', f.ordenes.join(' '), f.anulado ? 'SI' : '']);
   descargarCsv(`facturas-de-compra-${hoy()}.csv`, filas);
 };
 
@@ -1165,6 +1237,8 @@ vistas.factura = (clave) => {
       <div class="ancho"><label>Proveedor</label>${esc(f.tercero) || '—'}</div>
       <div><label>O/C</label>${f.ordenes.length ? f.ordenes.map((n) => { const o = db.ordenes.find((x) => x.numero === n); return `<a href="#orden/${o.id}">${esc(n)}</a>`; }).join(', ') : 'Stock general'}</div>
       <div><label>Total</label><b>${soles(f.total)}</b></div>
+      <div><label>Pago</label>${etiquetaPago(f)}${f.pago?.obs ? `<br><span class="suave">${esc(f.pago.obs)}</span>` : ''}
+        ${f.vence && !f.anulado ? `<br><button class="btn chico" style="margin-top:6px" data-accion="${f.pago ? 'desmarcar-pago' : 'marcar-pago'}" data-clave="${esc(f.clave)}">${f.pago ? 'Quitar marca de pagada' : 'Marcar como pagada'}</button>` : ''}</div>
     </div></div>
     <div class="panel"><div class="tabla-envoltura"><table>
       <thead><tr><th>#</th><th>Material</th><th class="n">Cantidad</th><th>Und</th><th class="n">Costo unit.</th><th class="n">Subtotal</th><th>Observación</th></tr></thead>
@@ -1183,6 +1257,29 @@ acciones['imprimir-factura'] = (b) => {
     <tbody>${f.movs.filter((m) => !m.anulado).map((m, i) => { const mat = material(m.materialId); return `<tr><td>${i + 1}</td><td>${esc(mat?.descripcion)}</td><td style="text-align:right">${cant(m.cantidad)}</td><td>${esc(mat?.unidad)}</td><td style="text-align:right">${fmt(m.costo, 4)}</td><td style="text-align:right">${fmt(num(m.cantidad) * num(m.costo))}</td></tr>`; }).join('')}</tbody>
     <tfoot><tr><td colspan="5">Total</td><td style="text-align:right">${fmt(f.total)}</td></tr></tfoot></table>
     <div class="firmas"><div>Recibí conforme (almacén)</div><div>V° B°</div></div>`);
+};
+
+acciones['ver-por-pagar'] = () => {
+  filtroFacturas.porPagar = true;
+  location.hash = '#facturas';
+};
+
+acciones['marcar-pago'] = (b) => {
+  const fecha = prompt('Fecha de pago (AAAA-MM-DD):', hoy());
+  if (!fecha) return;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha.trim())) return alert('Escribe la fecha como AAAA-MM-DD, por ejemplo ' + hoy());
+  const obs = prompt('Medio de pago u observación (opcional): transferencia, N° de operación…', '') || '';
+  db.pagos = db.pagos || {};
+  db.pagos[b.dataset.clave] = { fecha: fecha.trim(), obs: obs.trim() };
+  guardar();
+  render();
+};
+
+acciones['desmarcar-pago'] = (b) => {
+  if (!confirm('¿Quitar la marca de pagada? La factura vuelve a «por pagar».')) return;
+  delete db.pagos[b.dataset.clave];
+  guardar();
+  render();
 };
 
 acciones['anular-factura'] = (b) => {
