@@ -59,6 +59,7 @@ Las facturas que el usuario envía en PDF se transcriben en `js/compras-registra
 | 26/09/2026 | FFF1-00016116 | Inversiones Ferreteros Palermo E.I.R.L. (RUC 20559675807) | S/ 25.00 |
 | 27/09/2026 | FA38-00820427 | Homecenters Peruanos S.A. – Promart (RUC 20536557858) | S/ 79.00 |
 | 28/09/2026 | F001-00000962 | Comercializadora Aleyarí (RUC 20601224373) | S/ 275.00 |
+| 29/09/2026 | F001-00206458 | Distribuidora Royer SAC (RUC 20559587185) · **Empresa** | S/ 12.14 |
 | 30/09/2026 | E001-83 | Inversiones y Contrataciones Luis E.I.R.L. (RUC 20605998021), al crédito hasta el 30/11/2026 | S/ 14,922.46 |
 
 Un ítem puede repartirse en varios materiales (por ejemplo, un juego de baño = 1 inodoro + 1 lavamanos, con el precio repartido según la O/C). Si una factura ya cargada se corrige (campo `version`), al abrir la app se reemplazan sus ítems conservando su N° de compra.
