@@ -162,7 +162,8 @@ svg.icono { width: 20px; height: 20px; flex: none; fill: none; stroke: currentCo
 
 /* ---------- Contenido ---------- */
 #contenido { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.barra-superior { display: flex; justify-content: flex-end; padding: 16px 24px 0; }
+.barra-superior { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; padding: 16px 24px 0; }
+.ver-centro { width: auto; margin: 0; font-weight: 600; border-color: var(--primario); color: var(--texto); background: var(--primario-suave); }
 .buscador {
   display: flex; align-items: center; gap: 8px;
   background: var(--panel); border: 1px solid var(--borde); border-radius: 10px;
@@ -383,6 +384,7 @@ details.datos summary { font-weight: 500; color: var(--suave); }
   </aside>
   <div id="contenido">
     <div class="barra-superior">
+      <select id="ver-centro" class="ver-centro" aria-label="Filtrar por destino"></select>
       <form class="buscador" data-form="buscar" role="search">
         <span data-icono="buscar"></span>
         <input name="q" placeholder="Buscar material, O/C, factura…" autocomplete="off">
@@ -515,6 +517,7 @@ const ORDENES_INICIALES = [
 // La equivalencia asocia el ítem a un material que ya existe (por ejemplo, el de una O/C):
 //   { material: 'descripción en el catálogo', factor: n, oc: 'N° de O/C' }
 //   factor convierte la unidad de la factura a la del catálogo (tubo de 3 m → factor 3 si la O/C pide metros).
+// Destino: campo opcional `centro` de cada factura ('obra' por defecto, o 'empresa' para compras generales).
 
 const COMPRAS_REGISTRADAS = [
   {
@@ -924,6 +927,14 @@ function baseVacia() {
   };
 }
 
+// Destinos de las compras: la obra de las O/C o la empresa. Todo vive en un solo almacén y se filtra por destino.
+const CENTROS_BASE = [
+  { id: 'obra', nombre: 'Obra C.S. Huaso (O/C 000062 y 000063)', corto: 'Obra Huaso' },
+  { id: 'empresa', nombre: 'Empresa (compras generales)', corto: 'Empresa' },
+];
+let centroVista = '';
+try { centroVista = localStorage.getItem('inventario-centro') || ''; } catch (e) { /* sin almacenamiento */ }
+
 let db = null;
 try {
   db = JSON.parse(localStorage.getItem(CLAVE));
@@ -935,6 +946,7 @@ if (!db || !Array.isArray(db.materiales)) {
   cargarOrdenesIniciales();
   guardar();
 }
+asegurarCentros();
 let avisoImportacion = importarComprasRegistradas();
 
 function guardar() {
@@ -956,6 +968,7 @@ function cargarOrdenesIniciales() {
       id: uid(),
       ...cabecera,
       notificacion: cabecera.fecha,
+      centro: 'obra',
       obs: '',
       creado: Date.now(),
       items: items.map(([c, u, d, pu]) => ({ materialId: asegurarMaterial(d, u).id, cant: c, unidad: u, pu })),
@@ -963,6 +976,30 @@ function cargarOrdenesIniciales() {
     agregadas++;
   }
   return agregadas;
+}
+
+// Crea los destinos y etiqueta lo que no tenga destino (todo lo anterior a esta versión es de la obra).
+function asegurarCentros() {
+  if (!Array.isArray(db.centros) || !db.centros.length) db.centros = CENTROS_BASE.map((c) => ({ ...c }));
+  db.ordenes.forEach((o) => { if (!o.centro) o.centro = 'obra'; });
+  db.movimientos.forEach((m) => {
+    if (!m.centro) m.centro = db.ordenes.find((o) => o.id === m.ordenId)?.centro || 'obra';
+  });
+  if (centroVista && !db.centros.some((c) => c.id === centroVista)) centroVista = '';
+}
+
+const centro = (id) => db.centros.find((c) => c.id === id);
+const nombreCentro = (id) => centro(id)?.corto || centro(id)?.nombre || id || '';
+const movsVista = () => (centroVista ? db.movimientos.filter((m) => m.centro === centroVista) : db.movimientos);
+const ordenesVista = () => (centroVista ? db.ordenes.filter((o) => o.centro === centroVista) : db.ordenes);
+
+function etiquetaCentro(id) {
+  const i = db.centros.findIndex((c) => c.id === id);
+  return `<span class="etiqueta ${['e-azul', 'e-ambar', 'e-verde'][i % 3] || 'e-azul'}">${esc(nombreCentro(id))}</span>`;
+}
+
+function selectorCentro(nombre, valor, { todos = false } = {}) {
+  return `<select name="${nombre}">${todos ? '<option value="">Todo</option>' : ''}${db.centros.map((c) => `<option value="${c.id}" ${c.id === valor ? 'selected' : ''}>${esc(c.nombre)}</option>`).join('')}</select>`;
 }
 
 // Cada factura de compra (grupo de entradas) recibe un N° correlativo C-0001, C-0002…, en orden de fecha.
@@ -1054,6 +1091,7 @@ function movimientosDeCompra(c, clave, grupo, creado, nro) {
         id: uid(), grupo, creado: creado + movs.length, fecha: c.fecha, tipo: 'ENTRADA', materialId: mat.id,
         cantidad: redondear(cant * factor), costo: redondear((precio * proporcion) / factor, 6), ordenId: oc ? oc.id : '',
         documento: c.documento, tercero: `${c.proveedor} (RUC ${c.ruc})`, formaPago: c.vence ? 'CREDITO' : 'CONTADO', vence: c.vence || '',
+        centro: oc?.centro || c.centro || 'obra',
         obs: (parte ? `En factura: ${cant} ${unidad} ${descripcion} a ${soles(precio)} c/u${partes.length > 1 ? ` (${fmt(proporcion * 100, 0)}% del precio)` : ''} · ` : '')
           + `Pago ${c.pago || ''} · precios con IGV`,
         origen: clave,
@@ -1094,7 +1132,7 @@ function ordenCrono(a, b) {
 }
 
 // Recalcula stock, costo promedio y cantidades entregadas por O/C a partir de los movimientos.
-function calcular(movimientos = db.movimientos) {
+function calcular(movimientos = movsVista()) {
   const mats = new Map(db.materiales.map((m) => [m.id, { entradas: 0, salidas: 0, stock: 0, valor: 0, costo: 0, ultimoCosto: 0, negativo: false }]));
   const entregado = new Map();
   const costoMov = new Map();
@@ -1137,7 +1175,7 @@ function calcular(movimientos = db.movimientos) {
 }
 
 // Devuelve los materiales que quedarían con stock negativo en algún momento si se aplican estos cambios.
-function materialesEnNegativo(movimientos) {
+function materialesEnNegativo(movimientos = db.movimientos) {
   const r = calcular(movimientos);
   return db.materiales.filter((m) => r.mats.get(m.id)?.negativo);
 }
@@ -1187,6 +1225,7 @@ function render() {
   ocultarTip();
   $('#app').innerHTML = vista(...args);
   pintarMarca();
+  pintarSelectorVista();
   const activa = { orden: 'ordenes', 'nueva-orden': 'ordenes', 'editar-orden': 'ordenes', entrega: 'ordenes', kardex: 'stock', material: 'stock', factura: 'facturas', conteo: 'stock', 'nuevo-mov': 'movimientos' }[ruta] || ruta;
   $$('#menu a').forEach((a) => a.classList.toggle('activo', a.getAttribute('href') === '#' + (vistas[activa] ? activa : 'resumen')));
   $('#lateral').classList.remove('abierto');
@@ -1199,6 +1238,20 @@ function iniciales(nombre) {
   const palabras = String(nombre || '').replace(/S\.?A\.?C\.?|E\.?I\.?R\.?L\.?|S\.?R\.?L\.?|S\.?A\.?/g, '').split(/\s+/).filter((p) => p.length > 2);
   return (palabras.slice(0, 2).map((p) => p[0]).join('') || 'AL').toUpperCase();
 }
+
+function pintarSelectorVista() {
+  const sel = $('#ver-centro');
+  sel.innerHTML = `<option value="">Ver: Todo</option>${db.centros.map((c) => `<option value="${c.id}">Ver: ${esc(c.corto || c.nombre)}</option>`).join('')}`;
+  sel.value = centroVista;
+  $('#empresa-almacen').textContent = centroVista ? `${db.empresa.almacen} · ${nombreCentro(centroVista)}` : db.empresa.almacen;
+}
+
+document.addEventListener('change', (ev) => {
+  if (ev.target.id !== 'ver-centro') return;
+  centroVista = ev.target.value;
+  try { localStorage.setItem('inventario-centro', centroVista); } catch (e) { /* sin almacenamiento */ }
+  render();
+});
 
 function pintarMarca() {
   $('#empresa-nombre').textContent = db.empresa.nombre;
@@ -1270,7 +1323,7 @@ function avisoEn(form, mensaje, tipo = 'error') {
 
 vistas.resumen = () => {
   const calc = calcular();
-  const estados = db.ordenes.map((o) => ({ o, e: estadoOrden(o, calc) }));
+  const estados = ordenesVista().map((o) => ({ o, e: estadoOrden(o, calc) }));
   const abiertas = estados.filter(({ e }) => e.estado === 'Pendiente' || e.estado === 'Parcial');
   const valorStock = [...calc.mats.values()].reduce((a, s) => a + Math.max(0, s.valor), 0);
   const bajoMinimo = db.materiales.filter((m) => m.minimo > 0 && (calc.mats.get(m.id)?.stock || 0) < m.minimo);
@@ -1295,7 +1348,7 @@ vistas.resumen = () => {
   const totalFranja = f.entregado + f.listo + f.porComprar;
 
   return `
-    <div class="fila"><h1 class="titulo-panel">Panel de almacén</h1><span class="espacio"></span>
+    <div class="fila"><h1 class="titulo-panel">Panel de almacén${centroVista ? ` <span class="etiqueta e-azul" style="font-size:14px;text-transform:none">${esc(nombreCentro(centroVista))}</span>` : ''}</h1><span class="espacio"></span>
       <a class="btn" href="#compra">+ Registrar compra</a>
       <a class="btn primario" href="#nueva-orden">+ Nueva O/C</a></div>
     ${avisoImportacion ? `<p class="alerta ok">${esc(avisoImportacion)} <a href="#movimientos">Ver movimientos</a></p>` : ''}
@@ -1432,7 +1485,7 @@ function semanasPanel(n) {
   }
   const compras = new Array(n).fill(0);
   const entregas = new Array(n).fill(0);
-  for (const mv of db.movimientos) {
+  for (const mv of movsVista()) {
     if (mv.anulado || !mv.fecha || mv.fecha < inicio) continue;
     const i = Math.floor((new Date(mv.fecha + 'T12:00:00') - new Date(inicio + 'T12:00:00')) / (7 * 864e5));
     if (i < 0 || i >= n) continue;
@@ -1465,7 +1518,7 @@ function tablaOrdenes(lista) {
 
 vistas.ordenes = () => {
   const calc = calcular();
-  const lista = [...db.ordenes].sort((a, b) => (b.fecha || '').localeCompare(a.fecha || '') || b.numero.localeCompare(a.numero)).map((o) => ({ o, e: estadoOrden(o, calc) }));
+  const lista = [...ordenesVista()].sort((a, b) => (b.fecha || '').localeCompare(a.fecha || '') || b.numero.localeCompare(a.numero)).map((o) => ({ o, e: estadoOrden(o, calc) }));
   return `
     <div class="fila"><h1>Órdenes de compra recibidas</h1><span class="espacio"></span>
       <a class="btn primario" href="#nueva-orden">+ Nueva O/C</a></div>
@@ -1637,6 +1690,7 @@ function formOrden(o) {
           ${campo('area', 'Área usuaria')}
           ${campo('enviarA', 'Entregar en')}
           ${campo('meta', 'Meta / obra')}
+          <label>Destino${selectorCentro('centro', v.centro || centroVista || 'obra')}</label>
           ${campo('totalDeclarado', 'Total S/ según la O/C', 'number', 'step="0.01"')}
           <label class="ancho">Observaciones<input name="obs" value="${esc(v.obs)}"></label>
         </div>
@@ -1818,6 +1872,7 @@ formularios.orden = (f) => {
     numero: datos.numero.trim(), fecha: datos.fecha, notificacion: datos.notificacion || datos.fecha, plazoDias: num(datos.plazoDias),
     entidad: datos.entidad.trim(), rucEntidad: datos.rucEntidad.trim(), referencia: datos.referencia.trim(), siaf: datos.siaf.trim(),
     area: datos.area.trim(), enviarA: datos.enviarA.trim(), meta: datos.meta.trim(), obs: datos.obs.trim(), totalDeclarado: num(datos.totalDeclarado) || '',
+    centro: datos.centro || 'obra',
   };
   let destino;
   if (o) {
@@ -1835,7 +1890,7 @@ formularios.orden = (f) => {
 
 function listaPorComprar(calc) {
   const req = new Map();
-  for (const o of db.ordenes) {
+  for (const o of ordenesVista()) {
     if (o.cerrada) continue;
     const e = estadoOrden(o, calc);
     for (const it of e.items) {
@@ -1917,8 +1972,9 @@ vistas.compra = (modo, id) => {
         <label>Factura / boleta / guía N°<input name="documento" placeholder="F001-123"></label>
         <label>Forma de pago<select name="formaPago"><option value="CONTADO">Contado</option><option value="CREDITO">Crédito</option></select></label>
         <label>Vence (si es crédito)<input name="vence" type="date"></label>
-        <label>Para la O/C (opcional)<select name="ordenId"><option value="">— Stock general —</option>
-          ${db.ordenes.map((o) => `<option value="${o.id}" ${o.id === ordenSel ? 'selected' : ''}>${esc(o.numero)} · ${esc(o.entidad)}</option>`).join('')}</select></label>
+        <label>Destino *${selectorCentro('centro', orden(ordenSel)?.centro || centroVista || 'obra')}</label>
+        <label>Para la O/C (opcional)<select name="ordenId" data-fija-centro><option value="">— Sin O/C —</option>
+          ${db.ordenes.map((o) => `<option value="${o.id}" data-centro="${o.centro}" ${o.id === ordenSel ? 'selected' : ''}>${esc(o.numero)} · ${esc(o.entidad)}</option>`).join('')}</select></label>
         <label class="ancho">Observaciones<input name="obs"></label>
       </div>
       <datalist id="dl-proveedores">${[...new Set(db.movimientos.filter((m) => m.tipo === 'ENTRADA' && m.tercero).map((m) => m.tercero))].map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
@@ -1961,6 +2017,14 @@ function recalcularCompra() {
   $('#total-compra').textContent = fmt(total);
 }
 
+// Al elegir una O/C, el destino pasa a ser el de esa O/C.
+document.addEventListener('change', (ev) => {
+  if (!ev.target.matches?.('[data-fija-centro]')) return;
+  const c = ev.target.selectedOptions[0]?.dataset.centro;
+  const sel = ev.target.form?.elements.centro;
+  if (c && sel) sel.value = c;
+});
+
 // Al elegir un material existente, completa su unidad.
 document.addEventListener('change', (ev) => {
   if (ev.target.name !== 'descripcion') return;
@@ -1989,7 +2053,7 @@ formularios.compra = (f) => {
     db.movimientos.push({
       id: uid(), grupo, creado: ahora + i, fecha: d.fecha, tipo: 'ENTRADA', materialId: asegurarMaterial(x.descripcion, x.unidad).id,
       cantidad: x.cantidad, costo: x.costo, ordenId: d.ordenId, documento: d.documento.trim(), tercero: d.tercero.trim(), obs: d.obs.trim(),
-      formaPago: d.formaPago, vence: d.formaPago === 'CREDITO' ? d.vence : '',
+      formaPago: d.formaPago, vence: d.formaPago === 'CREDITO' ? d.vence : '', centro: orden(d.ordenId)?.centro || d.centro,
     });
   });
   guardar();
@@ -1999,13 +2063,14 @@ formularios.compra = (f) => {
 // ---------- Facturas de compra (numeradas) ----------
 
 function facturasDeCompra() {
-  const grupos = agruparPorDocumento(db.movimientos.filter((m) => m.tipo === 'ENTRADA'));
+  const grupos = agruparPorDocumento(movsVista().filter((m) => m.tipo === 'ENTRADA'));
   return grupos.map((g) => ({
     ...g,
     nro: g.movs[0].nroCompra || 0,
     total: g.movs.reduce((a, m) => a + num(m.cantidad) * num(m.costo), 0),
     ordenes: [...new Set(g.movs.map((m) => orden(m.ordenId)?.numero).filter(Boolean))],
     vence: g.movs[0].vence || '',
+    centro: g.movs[0].centro,
     pago: (db.pagos || {})[g.clave] || null,
   })).sort((a, b) => b.nro - a.nro);
 }
@@ -2057,8 +2122,14 @@ function facturasFiltradas() {
     if (f.anulado && !filtroFacturas.anuladas) return false;
     if (filtroFacturas.porPagar && !porPagar(f)) return false;
     if (!t) return true;
-    return norm([nroCompra(f.nro), f.nro, f.documento, f.tercero, f.ordenes.join(' '), ...f.movs.map((m) => material(m.materialId)?.descripcion)].join(' ')).includes(t);
+    return norm([nroCompra(f.nro), f.nro, f.documento, f.tercero, f.ordenes.join(' '), nombreCentro(f.centro), ...f.movs.map((m) => material(m.materialId)?.descripcion)].join(' ')).includes(t);
   });
+}
+
+// "PROVEEDOR S.A.C. (RUC 20…)" → nombre y, debajo, el RUC en pequeño.
+function proveedorCorto(t) {
+  const m = String(t || '').match(/^(.*?)\s*\(RUC (\d+)\)$/);
+  return m ? `${esc(m[1])}<br><span class="suave" style="font-size:12px">RUC ${m[2]}</span>` : esc(t);
 }
 
 function pintarFacturas() {
@@ -2067,22 +2138,22 @@ function pintarFacturas() {
   const lista = facturasFiltradas();
   const total = lista.filter((f) => !f.anulado).reduce((a, f) => a + f.total, 0);
   cont.innerHTML = lista.length ? `<div class="tabla-envoltura"><table>
-    <thead><tr><th>N° compra</th><th>Fecha</th><th>Comprobante</th><th>Proveedor</th><th class="n">Ítems</th><th class="n">Total</th><th>Pago</th><th>O/C</th></tr></thead>
+    <thead><tr><th>N° compra</th><th>Fecha</th><th>Comprobante</th><th>Proveedor</th><th>Destino</th><th class="n">Ítems</th><th class="n">Total</th><th>Pago</th><th>O/C</th></tr></thead>
     <tbody>${lista.map((f) => `<tr class="${f.anulado ? 'anulado' : ''}">
       <td><a href="#factura/${f.clave}"><b>${nroCompra(f.nro)}</b></a></td>
-      <td style="white-space:nowrap">${fechaPe(f.fecha)}</td><td style="white-space:nowrap">${esc(f.documento) || '<span class="suave">—</span>'}</td><td>${esc(f.tercero)}</td>
-      <td class="n">${f.movs.length}</td><td class="n">${soles(f.total)}</td>
-      <td>${etiquetaPago(f)}</td>
-      <td>${f.ordenes.map(esc).join(', ') || '<span class="suave">Stock general</span>'}</td>
+      <td style="white-space:nowrap">${fechaPe(f.fecha)}</td><td style="white-space:nowrap">${esc(f.documento) || '<span class="suave">—</span>'}</td><td>${proveedorCorto(f.tercero)}</td>
+      <td>${etiquetaCentro(f.centro)}</td><td class="n">${f.movs.length}</td><td class="n">${soles(f.total)}</td>
+      <td style="white-space:nowrap">${etiquetaPago(f)}</td>
+      <td>${f.ordenes.map(esc).join(', ') || '<span class="suave">—</span>'}</td>
     </tr>`).join('')}</tbody>
-    <tfoot><tr><td colspan="5">${lista.filter((f) => !f.anulado).length} factura(s)</td><td class="n">${soles(total)}</td>
+    <tfoot><tr><td colspan="6">${lista.filter((f) => !f.anulado).length} factura(s)</td><td class="n">${soles(total)}</td>
       <td colspan="2">${lista.some(porPagar) ? `Por pagar: ${soles(lista.filter(porPagar).reduce((a, f) => a + f.total, 0))}` : ''}</td></tr></tfoot>
   </table></div>` : '<p class="suave">No hay facturas con ese filtro.</p>';
 }
 
 acciones['csv-facturas'] = () => {
-  const filas = [['N compra', 'Fecha', 'Comprobante', 'Proveedor', 'Items', 'Total', 'Forma de pago', 'Vence', 'Pagada el', 'O/C', 'Anulada']];
-  for (const f of facturasFiltradas()) filas.push([nroCompra(f.nro), f.fecha, f.documento, f.tercero, f.movs.length, redondear(f.total, 2), f.vence ? 'CREDITO' : 'CONTADO', f.vence, f.pago?.fecha || '', f.ordenes.join(' '), f.anulado ? 'SI' : '']);
+  const filas = [['N compra', 'Fecha', 'Comprobante', 'Proveedor', 'Destino', 'Items', 'Total', 'Forma de pago', 'Vence', 'Pagada el', 'O/C', 'Anulada']];
+  for (const f of facturasFiltradas()) filas.push([nroCompra(f.nro), f.fecha, f.documento, f.tercero, nombreCentro(f.centro), f.movs.length, redondear(f.total, 2), f.vence ? 'CREDITO' : 'CONTADO', f.vence, f.pago?.fecha || '', f.ordenes.join(' '), f.anulado ? 'SI' : '']);
   descargarCsv(`facturas-de-compra-${hoy()}.csv`, filas);
 };
 
@@ -2107,7 +2178,9 @@ vistas.factura = (clave) => {
       <div><label>Comprobante</label><b>${esc(f.documento) || '—'}</b></div>
       <div><label>Fecha</label>${fechaPe(f.fecha)}</div>
       <div class="ancho"><label>Proveedor</label>${esc(f.tercero) || '—'}</div>
-      <div><label>O/C</label>${f.ordenes.length ? f.ordenes.map((n) => { const o = db.ordenes.find((x) => x.numero === n); return `<a href="#orden/${o.id}">${esc(n)}</a>`; }).join(', ') : 'Stock general'}</div>
+      <div><label>Destino</label>${etiquetaCentro(f.centro)}
+        ${f.ordenes.length || f.anulado ? '' : `<br><select data-cambiar-centro="${esc(f.clave)}" style="margin-top:6px;width:auto">${db.centros.map((c) => `<option value="${c.id}" ${c.id === f.centro ? 'selected' : ''}>Mover a: ${esc(c.corto || c.nombre)}</option>`).join('')}</select>`}</div>
+      <div><label>O/C</label>${f.ordenes.length ? f.ordenes.map((n) => { const o = db.ordenes.find((x) => x.numero === n); return `<a href="#orden/${o.id}">${esc(n)}</a>`; }).join(', ') : '—'}</div>
       <div><label>Total</label><b>${soles(f.total)}</b></div>
       <div><label>Pago</label>${etiquetaPago(f)}${f.pago?.obs ? `<br><span class="suave">${esc(f.pago.obs)}</span>` : ''}
         ${f.vence && !f.anulado ? `<br><button class="btn chico" style="margin-top:6px" data-accion="${f.pago ? 'desmarcar-pago' : 'marcar-pago'}" data-clave="${esc(f.clave)}">${f.pago ? 'Quitar marca de pagada' : 'Marcar como pagada'}</button>` : ''}</div>
@@ -2130,6 +2203,17 @@ acciones['imprimir-factura'] = (b) => {
     <tfoot><tr><td colspan="5">Total</td><td style="text-align:right">${fmt(f.total)}</td></tr></tfoot></table>
     <div class="firmas"><div>Recibí conforme (almacén)</div><div>V° B°</div></div>`);
 };
+
+// Cambiar el destino de una factura sin O/C (por ejemplo, de Obra a Empresa).
+document.addEventListener('change', (ev) => {
+  const clave = ev.target.dataset?.cambiarCentro;
+  if (!clave) return;
+  const nuevo = ev.target.value;
+  if (!confirm(`¿Mover esta factura a «${nombreCentro(nuevo)}»?`)) { render(); return; }
+  db.movimientos.forEach((m) => { if ((m.grupo || m.id) === clave) m.centro = nuevo; });
+  guardar();
+  render();
+});
 
 acciones['ver-por-pagar'] = () => {
   filtroFacturas.porPagar = true;
@@ -2225,7 +2309,7 @@ formularios.entrega = (f) => {
     if (c > it.pendiente + EPS) return avisoEn(f, `«${esc(material(it.materialId).descripcion)}»: estás entregando ${cant(c)} y solo quedan ${cant(it.pendiente)} pendientes.`);
     nuevos.push({
       id: uid(), grupo, creado: ahora + nuevos.length, fecha: d.fecha, tipo: 'SALIDA', materialId: it.materialId, cantidad: c, costo: 0,
-      ordenId: o.id, documento: d.documento.trim(), tercero: o.entidad, recibe: d.recibe.trim(), lugar: d.lugar.trim(), obs: d.obs.trim(),
+      ordenId: o.id, documento: d.documento.trim(), tercero: o.entidad, recibe: d.recibe.trim(), lugar: d.lugar.trim(), obs: d.obs.trim(), centro: o.centro,
     });
   }
   if (!nuevos.length) return avisoEn(f, 'Indica al menos una cantidad a entregar.');
@@ -2256,6 +2340,7 @@ vistas['nuevo-mov'] = (tipoInicial = 'DEVOLUCION', materialId = '') => {
         <label data-solo="ENTRADA">Unidad (si es material nuevo)<input name="unidad" list="dl-unidades" value="UND"></label>
         <label data-solo="SALIDA DEVOLUCION ENTRADA">O/C<select name="ordenId"><option value="">— Ninguna —</option>
           ${db.ordenes.map((o) => `<option value="${o.id}">${esc(o.numero)} · ${esc(o.entidad)}</option>`).join('')}</select></label>
+        <label>Destino${selectorCentro('centro', centroVista || 'obra')}</label>
         <label>Documento<input name="documento" placeholder="Guía, factura, vale…"></label>
         <label>Proveedor / quién recibe o devuelve<input name="tercero"></label>
         <label class="ancho">Motivo u observación<input name="obs"></label>
@@ -2297,7 +2382,7 @@ formularios.mov = (f) => {
   const mov = {
     id: uid(), creado: Date.now(), fecha: d.fecha, tipo: d.tipo, materialId: m.id,
     cantidad: d.tipo === 'AJUSTE' ? c * num(d.sentido) : c, costo: d.tipo === 'ENTRADA' ? num(d.costo) : 0,
-    ordenId, documento: d.documento.trim(), tercero: d.tercero.trim(), obs: d.obs.trim(),
+    ordenId, documento: d.documento.trim(), tercero: d.tercero.trim(), obs: d.obs.trim(), centro: orden(ordenId)?.centro || d.centro,
   };
   if (materialesEnNegativo([...db.movimientos, mov]).some((x) => x.id === m.id)) {
     return avisoEn(f, `No alcanza el stock de este material a la fecha ${fechaPe(d.fecha)}.`);
@@ -2338,7 +2423,7 @@ document.addEventListener('input', (ev) => {
 
 function movimientosFiltrados() {
   const t = norm(filtroMov.texto);
-  return db.movimientos.filter((mv) => {
+  return movsVista().filter((mv) => {
     if (mv.anulado && !filtroMov.anulados) return false;
     if (filtroMov.tipo && mv.tipo !== filtroMov.tipo) return false;
     if (filtroMov.ordenId && mv.ordenId !== filtroMov.ordenId) return false;
@@ -2446,8 +2531,10 @@ document.addEventListener('input', (ev) => {
 
 function stockFiltrado(calc) {
   const t = norm(filtroStock.texto);
+  const enVista = centroVista ? new Set([...movsVista().map((m) => m.materialId), ...ordenesVista().flatMap((o) => o.items.map((it) => it.materialId))]) : null;
   return db.materiales.filter((m) => {
     const s = calc.mats.get(m.id);
+    if (enVista && !enVista.has(m.id)) return false;
     if (t && !norm(m.codigo + ' ' + m.descripcion).includes(t)) return false;
     if (filtroStock.modo === 'con' && s.stock <= EPS) return false;
     if (filtroStock.modo === 'bajo' && !(m.minimo > 0 && s.stock < m.minimo)) return false;
@@ -2498,11 +2585,12 @@ acciones['imprimir-stock'] = () => {
 // ---------- Conteo físico ----------
 
 vistas.conteo = () => {
+  if (!centroVista) return `<p><a href="#stock">← Stock</a></p><h1>Conteo físico</h1><p class="alerta aviso">Elige arriba, en «Ver», si vas a contar el material de la <b>${esc(nombreCentro('obra'))}</b> o de la <b>${esc(nombreCentro('empresa'))}</b>. Así cada ajuste queda con su destino.</p>`;
   const calc = calcular();
-  const lista = [...db.materiales].sort((a, b) => a.descripcion.localeCompare(b.descripcion));
+  const lista = stockFiltrado(calc);
   return `
     <p><a href="#stock">← Stock</a></p>
-    <h1>Conteo físico</h1>
+    <h1>Conteo físico · ${esc(nombreCentro(centroVista))}</h1>
     <p class="suave">Cuenta lo que hay en el almacén y escríbelo en «Conteo». Deja en blanco lo que no contaste. Las diferencias se registran como ajustes con el motivo «Conteo físico».</p>
     <form data-form="conteo">
       <div class="panel"><div class="campos"><label>Fecha del conteo<input type="date" name="fecha" value="${hoy()}"></label>
@@ -2518,7 +2606,7 @@ vistas.conteo = () => {
 
 formularios.conteo = (f) => {
   const d = Object.fromEntries(new FormData(f));
-  const calc = calcular(db.movimientos.filter((m) => m.fecha <= d.fecha));
+  const calc = calcular(movsVista().filter((m) => m.fecha <= d.fecha));
   const nuevos = [];
   const ahora = Date.now();
   const grupo = uid();
@@ -2527,7 +2615,7 @@ formularios.conteo = (f) => {
     if (v === undefined || v === '') continue;
     const dif = redondear(num(v) - calc.mats.get(m.id).stock);
     if (Math.abs(dif) < EPS) continue;
-    nuevos.push({ id: uid(), grupo, creado: ahora + nuevos.length, fecha: d.fecha, tipo: 'AJUSTE', materialId: m.id, cantidad: dif, costo: 0, ordenId: '', documento: 'Conteo físico', tercero: d.responsable.trim(), obs: 'Conteo físico' });
+    nuevos.push({ id: uid(), grupo, creado: ahora + nuevos.length, fecha: d.fecha, tipo: 'AJUSTE', materialId: m.id, cantidad: dif, costo: 0, ordenId: '', documento: 'Conteo físico', tercero: d.responsable.trim(), obs: 'Conteo físico', centro: centroVista });
   }
   if (!nuevos.length) return avisoEn(f, 'No hay diferencias: el conteo coincide con el sistema (o no ingresaste cantidades).', 'ok');
   const resumen = nuevos.map((n) => `• ${material(n.materialId).descripcion}: ${n.cantidad > 0 ? '+' : ''}${cant(n.cantidad)}`).join('\n');
@@ -2584,7 +2672,7 @@ vistas.kardex = (id) => {
   if (!m) return '<p class="alerta error">No se encontró el material.</p>';
   const calc = calcular();
   const s = calc.mats.get(m.id);
-  const movs = db.movimientos.filter((x) => x.materialId === m.id).sort(ordenCrono);
+  const movs = movsVista().filter((x) => x.materialId === m.id).sort(ordenCrono);
   const usos = db.ordenes.filter((o) => o.items.some((it) => it.materialId === m.id));
   return `
     <p><a href="#stock">← Stock</a></p>
@@ -2618,7 +2706,7 @@ function tablaKardex(m, movs, calc, paraImprimir = false) {
 
 acciones['imprimir-kardex'] = (b) => {
   const m = material(b.dataset.id);
-  const movs = db.movimientos.filter((x) => x.materialId === m.id).sort(ordenCrono);
+  const movs = movsVista().filter((x) => x.materialId === m.id).sort(ordenCrono);
   imprimir(`${cabeceraImpresion('KARDEX DE MATERIAL')}<p><b>${esc(m.codigo)} · ${esc(m.descripcion)}</b> (${esc(m.unidad)})</p>${tablaKardex(m, movs, calcular(), true)}`);
 };
 
@@ -2643,6 +2731,15 @@ vistas.config = () => `
     </div>
     <div class="fila fin" style="margin-top:10px"><button class="btn primario">Guardar</button></div>
   </form>
+  <form data-form="centros" class="panel">
+    <h2 style="margin-top:0">Destinos de las compras</h2>
+    <p class="suave">Cada factura se etiqueta con un destino para no mezclar las compras de una obra con las generales de la empresa. Arriba, en «Ver», filtras todo por destino.</p>
+    <div class="campos">
+      ${db.centros.map((c) => `<label>Nombre<input name="n_${c.id}" value="${esc(c.nombre)}"></label><label>Nombre corto<input name="c_${c.id}" value="${esc(c.corto || '')}"></label>`).join('')}
+      <label>Nuevo destino (opcional)<input name="nuevo" placeholder="Ej.: Obra Colegio Trujillo"></label>
+    </div>
+    <div class="fila fin" style="margin-top:10px"><button class="btn primario">Guardar destinos</button></div>
+  </form>
   <div class="panel">
     <h2 style="margin-top:0">Respaldo</h2>
     <p>Los datos viven solo en este navegador. Si borras el historial o cambias de computadora se pierden. <b>Descarga un respaldo cada semana</b> y guárdalo en tu USB, Drive o correo.</p>
@@ -2660,6 +2757,18 @@ vistas.config = () => `
       <button class="btn peligro" data-accion="borrar-todo">Borrar todos los datos</button>
     </div>
   </div>`;
+
+formularios.centros = (f) => {
+  const d = Object.fromEntries(new FormData(f));
+  db.centros.forEach((c) => {
+    c.nombre = (d['n_' + c.id] || c.nombre).trim() || c.nombre;
+    c.corto = (d['c_' + c.id] || '').trim();
+  });
+  const nuevo = (d.nuevo || '').trim();
+  if (nuevo) db.centros.push({ id: 'c' + uid(), nombre: nuevo, corto: nuevo.length > 22 ? nuevo.slice(0, 22) + '…' : nuevo });
+  guardar();
+  render();
+};
 
 formularios.empresa = (f) => {
   const d = Object.fromEntries(new FormData(f));

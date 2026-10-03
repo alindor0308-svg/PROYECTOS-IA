@@ -5,6 +5,7 @@
 // La equivalencia asocia el ítem a un material que ya existe (por ejemplo, el de una O/C):
 //   { material: 'descripción en el catálogo', factor: n, oc: 'N° de O/C' }
 //   factor convierte la unidad de la factura a la del catálogo (tubo de 3 m → factor 3 si la O/C pide metros).
+// Destino: campo opcional `centro` de cada factura ('obra' por defecto, o 'empresa' para compras generales).
 
 const COMPRAS_REGISTRADAS = [
   {

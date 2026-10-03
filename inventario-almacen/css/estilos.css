@@ -151,7 +151,8 @@ svg.icono { width: 20px; height: 20px; flex: none; fill: none; stroke: currentCo
 
 /* ---------- Contenido ---------- */
 #contenido { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.barra-superior { display: flex; justify-content: flex-end; padding: 16px 24px 0; }
+.barra-superior { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; padding: 16px 24px 0; }
+.ver-centro { width: auto; margin: 0; font-weight: 600; border-color: var(--primario); color: var(--texto); background: var(--primario-suave); }
 .buscador {
   display: flex; align-items: center; gap: 8px;
   background: var(--panel); border: 1px solid var(--borde); border-radius: 10px;
