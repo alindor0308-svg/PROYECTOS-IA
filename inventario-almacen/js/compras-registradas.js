@@ -6,6 +6,8 @@
 //   { material: 'descripción en el catálogo', factor: n, oc: 'N° de O/C' }
 //   factor convierte la unidad de la factura a la del catálogo (tubo de 3 m → factor 3 si la O/C pide metros).
 // Destino: campo opcional `centro` de cada factura ('obra' por defecto, o 'empresa' para compras generales).
+// Moneda: `moneda: 'USD'` con `tipoCambio` (y `tcProvisional` si falta confirmarlo); el costo se guarda en soles.
+// Flete u otro costo de un material ya comprado: equivalencia { costoDe: 'descripción del material' } (suma al costo, no al stock).
 
 const COMPRAS_REGISTRADAS = [
   {
@@ -132,6 +134,48 @@ const COMPRAS_REGISTRADAS = [
     items: [
       [1, 'UND', 'PLANCHA DE BATIR 8" M/GOMA (ROY251) ROYTOOLS', 7.17],
       [1, 'UND', 'BADILEJO 7" M/GOMA (ROY253) ROYTOOLS', 4.97],
+    ],
+  },
+  {
+    proveedor: 'LLANMAXXI DEL PERU S.A.C.',
+    ruc: '20492565319',
+    documento: 'F001-0000052213',
+    fecha: '2026-10-06',
+    pago: 'CONTADO',
+    centro: 'empresa',
+    moneda: 'USD',
+    tipoCambio: 3.4, // PROVISIONAL: confirmar con el tipo de cambio de SUNAT del 06/10/2026
+    tcProvisional: true,
+    total: 2430.898, // US$ 714.97 × 3.40
+    items: [
+      // US$ 714.97 por 4 llantas (la factura redondea el unitario a 178.74).
+      [4, 'UND', 'LLANTA 265/65 R17 AT811 112T MAXXIS', 714.97 / 4],
+    ],
+  },
+  {
+    proveedor: 'TRANSPORTE DE ENCOMIENDAS (RUC POR CONFIRMAR)',
+    ruc: '',
+    documento: 'FV05-00003544',
+    fecha: '2026-10-06',
+    pago: 'CONTADO (contra entrega)',
+    centro: 'empresa',
+    total: 160,
+    items: [
+      // Flete Lima (La Victoria) → Trujillo de las 4 llantas, guía del remitente T001-25801.
+      [1, 'SERVICIO', 'FLETE LIMA-TRUJILLO: 4 LLANTAS (GUIA T001-25801)', 160, { costoDe: 'LLANTA 265/65 R17 AT811 112T MAXXIS' }],
+    ],
+  },
+  {
+    proveedor: 'IMPORT & EXPORT J.A. E.I.R.L. (JA WHEELS)',
+    ruc: '20478027843',
+    documento: 'F001-710',
+    fecha: '2026-10-08',
+    pago: 'CONTADO',
+    centro: 'empresa',
+    total: 1750,
+    items: [
+      [1, 'UND', 'ARO 17X8.5 6X139 H602 ZEHLENDORF', 1600],
+      [1, 'UND', 'CENTRADOR DE ARO (AUTO)', 150],
     ],
   },
 ];

@@ -71,8 +71,13 @@ Las facturas que el usuario envía en PDF se transcriben en `js/compras-registra
 | 27/09/2026 | FA38-00820427 | Homecenters Peruanos S.A. – Promart (RUC 20536557858) | S/ 79.00 |
 | 28/09/2026 | F001-00000962 | Comercializadora Aleyarí (RUC 20601224373) | S/ 275.00 |
 | 29/09/2026 | F001-00206458 | Distribuidora Royer SAC (RUC 20559587185) · **Empresa** | S/ 12.14 |
+| 06/10/2026 | F001-0000052213 | Llanmaxxi del Perú S.A.C. (RUC 20492565319) · **Empresa** · en US$ (US$ 714.97, TC provisional 3.40) | S/ 2,430.90 |
+| 06/10/2026 | FV05-00003544 | Transporte de encomiendas (RUC por confirmar) · **Empresa** · flete de las llantas, se suma a su costo | S/ 160.00 |
+| 08/10/2026 | F001-710 | Import & Export J.A. E.I.R.L. (RUC 20478027843) · **Empresa** | S/ 1,750.00 |
 | 30/09/2026 | E001-83 | Inversiones y Contrataciones Luis E.I.R.L. (RUC 20605998021), al crédito hasta el 30/11/2026 | S/ 14,922.46 |
 
 Un ítem puede repartirse en varios materiales (por ejemplo, un juego de baño = 1 inodoro + 1 lavamanos, con el precio repartido según la O/C). Si una factura ya cargada se corrige (campo `version`), al abrir la app se reemplazan sus ítems conservando su N° de compra.
+
+Facturas en dólares: se guardan en soles con su tipo de cambio (corregible desde el detalle de la factura) y conservan el monto original. Un flete u otro costo de un material ya comprado se registra como «costo adicional»: sube su costo promedio sin cambiar la cantidad.
 
 Los ítems que corresponden a una O/C se asocian al material de esa O/C (con conversión de unidades, por ejemplo tubos de 3 m a metros); la descripción original de la factura queda en la observación del movimiento.

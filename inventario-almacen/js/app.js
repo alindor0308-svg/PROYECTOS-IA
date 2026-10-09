@@ -9,6 +9,7 @@ const TIPOS = {
   SALIDA: 'Salida (entrega)',
   DEVOLUCION: 'Devolución al almacén',
   AJUSTE: 'Ajuste',
+  COSTO: 'Costo adicional (flete)',
 };
 const UNIDADES = ['UND', 'M', 'M2', 'M3', 'KG', 'GLN', 'L', 'PZA', 'JGO', 'PAR', 'ROLLO', 'BOLSA', 'CAJA', 'PLANCHA', 'VARILLA'];
 const EPS = 1e-6;
@@ -147,7 +148,7 @@ function selectorCentro(nombre, valor, { todos = false } = {}) {
 function numerarCompras() {
   const grupos = new Map();
   for (const m of db.movimientos) {
-    if (m.tipo !== 'ENTRADA') continue;
+    if (m.tipo !== 'ENTRADA' && m.tipo !== 'COSTO') continue;
     const k = m.grupo || m.id;
     if (!grupos.has(k)) grupos.set(k, []);
     grupos.get(k).push(m);
@@ -220,20 +221,36 @@ function importarComprasRegistradas() {
 // Un ítem puede ir a un material del catálogo (equivalencia) o repartirse en varios (lista de equivalencias con "proporcion" del precio).
 function movimientosDeCompra(c, clave, grupo, creado, nro) {
   const movs = [];
+  // Facturas en dólares: el costo se guarda en soles con el tipo de cambio y se conserva el monto original.
+  const tc = c.moneda === 'USD' ? num(c.tipoCambio) || 1 : 1;
+  const extra = c.moneda === 'USD' ? { moneda: 'USD', tcambio: tc, tcProvisional: Boolean(c.tcProvisional) } : {};
   c.items.forEach(([cant, unidad, descripcion, precio, eq]) => {
     const partes = !eq ? [null] : Array.isArray(eq) ? eq : [eq];
     for (const parte of partes) {
-      const factor = parte?.factor || 1;
       const proporcion = parte?.proporcion ?? 1;
+      if (parte?.costoDe) {
+        // Flete u otro costo que se suma al valor de un material ya comprado, sin cambiar su cantidad.
+        const montoME = cant * precio * proporcion;
+        movs.push({
+          id: uid(), grupo, creado: creado + movs.length, fecha: c.fecha, tipo: 'COSTO', materialId: asegurarMaterial(parte.costoDe, unidad).id,
+          cantidad: 0, costo: redondear(montoME * tc, 6), costoME: c.moneda === 'USD' ? montoME : undefined, ...extra, ordenId: '',
+          documento: c.documento, tercero: `${c.proveedor}${c.ruc ? ` (RUC ${c.ruc})` : ''}`, formaPago: c.vence ? 'CREDITO' : 'CONTADO', vence: c.vence || '',
+          centro: c.centro || 'obra', obs: `${descripcion} · se suma al costo de ${parte.costoDe} · Pago ${c.pago || ''}`, origen: clave,
+          ...(nro ? { nroCompra: nro } : {}),
+        });
+        continue;
+      }
+      const factor = parte?.factor || 1;
       const mat = asegurarMaterial(parte ? parte.material : descripcion, unidad);
       const oc = parte?.oc ? db.ordenes.find((o) => o.numero === parte.oc) : null;
       movs.push({
         id: uid(), grupo, creado: creado + movs.length, fecha: c.fecha, tipo: 'ENTRADA', materialId: mat.id,
-        cantidad: redondear(cant * factor), costo: redondear((precio * proporcion) / factor, 6), ordenId: oc ? oc.id : '',
-        documento: c.documento, tercero: `${c.proveedor} (RUC ${c.ruc})`, formaPago: c.vence ? 'CREDITO' : 'CONTADO', vence: c.vence || '',
+        cantidad: redondear(cant * factor), costo: redondear((precio * proporcion * tc) / factor, 6), ordenId: oc ? oc.id : '',
+        ...(c.moneda === 'USD' ? { costoME: (precio * proporcion) / factor, ...extra } : {}),
+        documento: c.documento, tercero: `${c.proveedor}${c.ruc ? ` (RUC ${c.ruc})` : ''}`, formaPago: c.vence ? 'CREDITO' : 'CONTADO', vence: c.vence || '',
         centro: oc?.centro || c.centro || 'obra',
         obs: (parte ? `En factura: ${cant} ${unidad} ${descripcion} a ${soles(precio)} c/u${partes.length > 1 ? ` (${fmt(proporcion * 100, 0)}% del precio)` : ''} · ` : '')
-          + `Pago ${c.pago || ''} · precios con IGV`,
+          + `Pago ${c.pago || ''} · precios con IGV${c.moneda === 'USD' ? ` · factura en US$, TC ${tc}` : ''}`,
         origen: clave,
         ...(nro ? { nroCompra: nro } : {}),
       });
@@ -282,6 +299,14 @@ function calcular(movimientos = movsVista()) {
     const s = mats.get(mv.materialId);
     if (!s) continue;
     const c = num(mv.cantidad);
+    if (mv.tipo === 'COSTO') {
+      // Suma al valor del stock sin cambiar la cantidad (el costo promedio sube).
+      s.valor += num(mv.costo);
+      costoMov.set(mv.id, num(mv.costo));
+      if (s.stock > EPS) s.costo = s.valor / s.stock;
+      saldoMov.set(mv.id, s.stock);
+      continue;
+    }
     if (mv.tipo === 'ENTRADA') {
       const cu = num(mv.costo);
       s.stock += c;
@@ -1280,11 +1305,15 @@ formularios.compra = (f) => {
 // ---------- Facturas de compra (numeradas) ----------
 
 function facturasDeCompra() {
-  const grupos = agruparPorDocumento(movsVista().filter((m) => m.tipo === 'ENTRADA'));
+  const grupos = agruparPorDocumento(movsVista().filter((m) => m.tipo === 'ENTRADA' || m.tipo === 'COSTO'));
   return grupos.map((g) => ({
     ...g,
     nro: g.movs[0].nroCompra || 0,
-    total: g.movs.reduce((a, m) => a + num(m.cantidad) * num(m.costo), 0),
+    total: g.movs.reduce((a, m) => a + importeMov(m), 0),
+    moneda: g.movs[0].moneda || 'PEN',
+    totalME: g.movs[0].moneda === 'USD' ? g.movs.reduce((a, m) => a + (m.tipo === 'COSTO' ? num(m.costoME) : num(m.cantidad) * num(m.costoME)), 0) : 0,
+    tc: g.movs[0].tcambio || 0,
+    tcProvisional: g.movs.some((m) => m.tcProvisional),
     ordenes: [...new Set(g.movs.map((m) => orden(m.ordenId)?.numero).filter(Boolean))],
     vence: g.movs[0].vence || '',
     centro: g.movs[0].centro,
@@ -1359,7 +1388,7 @@ function pintarFacturas() {
     <tbody>${lista.map((f) => `<tr class="${f.anulado ? 'anulado' : ''}">
       <td><a href="#factura/${f.clave}"><b>${nroCompra(f.nro)}</b></a></td>
       <td style="white-space:nowrap">${fechaPe(f.fecha)}</td><td style="white-space:nowrap">${esc(f.documento) || '<span class="suave">—</span>'}</td><td>${proveedorCorto(f.tercero)}</td>
-      <td>${etiquetaCentro(f.centro)}</td><td class="n">${f.movs.length}</td><td class="n">${soles(f.total)}</td>
+      <td>${etiquetaCentro(f.centro)}</td><td class="n">${f.movs.length}</td><td class="n">${soles(f.total)}${f.moneda === 'USD' ? `<br><span class="suave" style="font-size:12px">US$ ${fmt(f.totalME)}${f.tcProvisional ? ' · TC provisional' : ''}</span>` : ''}</td>
       <td style="white-space:nowrap">${etiquetaPago(f)}</td>
       <td>${f.ordenes.map(esc).join(', ') || '<span class="suave">—</span>'}</td>
     </tr>`).join('')}</tbody>
@@ -1369,8 +1398,8 @@ function pintarFacturas() {
 }
 
 acciones['csv-facturas'] = () => {
-  const filas = [['N compra', 'Fecha', 'Comprobante', 'Proveedor', 'Destino', 'Items', 'Total', 'Forma de pago', 'Vence', 'Pagada el', 'O/C', 'Anulada']];
-  for (const f of facturasFiltradas()) filas.push([nroCompra(f.nro), f.fecha, f.documento, f.tercero, nombreCentro(f.centro), f.movs.length, redondear(f.total, 2), f.vence ? 'CREDITO' : 'CONTADO', f.vence, f.pago?.fecha || '', f.ordenes.join(' '), f.anulado ? 'SI' : '']);
+  const filas = [['N compra', 'Fecha', 'Comprobante', 'Proveedor', 'Destino', 'Items', 'Total S/', 'Moneda', 'Total moneda original', 'TC', 'Forma de pago', 'Vence', 'Pagada el', 'O/C', 'Anulada']];
+  for (const f of facturasFiltradas()) filas.push([nroCompra(f.nro), f.fecha, f.documento, f.tercero, nombreCentro(f.centro), f.movs.length, redondear(f.total, 2), f.moneda === 'USD' ? 'USD' : 'PEN', f.moneda === 'USD' ? redondear(f.totalME, 2) : redondear(f.total, 2), f.tc || '', f.vence ? 'CREDITO' : 'CONTADO', f.vence, f.pago?.fecha || '', f.ordenes.join(' '), f.anulado ? 'SI' : '']);
   descargarCsv(`facturas-de-compra-${hoy()}.csv`, filas);
 };
 
@@ -1398,15 +1427,17 @@ vistas.factura = (clave) => {
       <div><label>Destino</label>${etiquetaCentro(f.centro)}
         ${f.ordenes.length || f.anulado ? '' : `<br><select data-cambiar-centro="${esc(f.clave)}" style="margin-top:6px;width:auto">${db.centros.map((c) => `<option value="${c.id}" ${c.id === f.centro ? 'selected' : ''}>Mover a: ${esc(c.corto || c.nombre)}</option>`).join('')}</select>`}</div>
       <div><label>O/C</label>${f.ordenes.length ? f.ordenes.map((n) => { const o = db.ordenes.find((x) => x.numero === n); return `<a href="#orden/${o.id}">${esc(n)}</a>`; }).join(', ') : '—'}</div>
-      <div><label>Total</label><b>${soles(f.total)}</b></div>
+      <div><label>Total</label><b>${soles(f.total)}</b>${f.moneda === 'USD' ? `<br><span class="suave">US$ ${fmt(f.totalME)} × TC ${fmt(f.tc, 3)}</span>
+        ${f.tcProvisional ? '<br><span class="etiqueta e-ambar">⚠ Tipo de cambio provisional</span>' : ''}
+        ${f.anulado ? '' : `<br><button class="btn chico" style="margin-top:6px" data-accion="cambiar-tc" data-clave="${esc(f.clave)}">Corregir tipo de cambio</button>`}` : ''}</div>
       <div><label>Pago</label>${etiquetaPago(f)}${f.pago?.obs ? `<br><span class="suave">${esc(f.pago.obs)}</span>` : ''}
         ${f.vence && !f.anulado ? `<br><button class="btn chico" style="margin-top:6px" data-accion="${f.pago ? 'desmarcar-pago' : 'marcar-pago'}" data-clave="${esc(f.clave)}">${f.pago ? 'Quitar marca de pagada' : 'Marcar como pagada'}</button>` : ''}</div>
     </div></div>
     <div class="panel"><div class="tabla-envoltura"><table>
       <thead><tr><th>#</th><th>Material</th><th class="n">Cantidad</th><th>Und</th><th class="n">Costo unit.</th><th class="n">Subtotal</th><th>Observación</th></tr></thead>
       <tbody>${f.movs.map((m, i) => { const mat = material(m.materialId); return `<tr class="${m.anulado ? 'anulado' : ''}">
-        <td>${i + 1}</td><td><a href="#kardex/${m.materialId}">${esc(mat?.descripcion)}</a></td><td class="n">${cant(m.cantidad)}</td><td>${esc(mat?.unidad)}</td>
-        <td class="n">${fmt(m.costo, m.costo % 0.01 ? 4 : 2)}</td><td class="n">${fmt(num(m.cantidad) * num(m.costo))}</td><td class="suave">${esc(m.obs)}${m.anulado ? `<br><span class="rojo">Anulado: ${esc(m.motivoAnulacion)}</span>` : ''}</td></tr>`; }).join('')}</tbody>
+        <td>${i + 1}</td><td><a href="#kardex/${m.materialId}">${esc(mat?.descripcion)}</a></td><td class="n">${m.tipo === 'COSTO' ? '—' : cant(m.cantidad)}</td><td>${m.tipo === 'COSTO' ? 'flete' : esc(mat?.unidad)}</td>
+        <td class="n">${m.tipo === 'COSTO' ? '—' : fmt(m.costo, m.costo % 0.01 ? 4 : 2)}</td><td class="n">${fmt(importeMov(m))}</td><td class="suave">${esc(m.obs)}${m.anulado ? `<br><span class="rojo">Anulado: ${esc(m.motivoAnulacion)}</span>` : ''}</td></tr>`; }).join('')}</tbody>
       <tfoot><tr><td colspan="5">Total</td><td class="n">${fmt(f.total)}</td><td></td></tr></tfoot>
     </table></div></div>`;
 };
@@ -1416,7 +1447,7 @@ acciones['imprimir-factura'] = (b) => {
   imprimir(`${cabeceraImpresion(`REGISTRO DE COMPRA ${nroCompra(f.nro)}`)}
     <p><b>Comprobante:</b> ${esc(f.documento)} · <b>Fecha:</b> ${fechaPe(f.fecha)}<br><b>Proveedor:</b> ${esc(f.tercero)}${f.ordenes.length ? ` · <b>O/C:</b> ${f.ordenes.map(esc).join(', ')}` : ''}</p>
     <table><thead><tr><th>#</th><th>Material</th><th>Cant.</th><th>Und</th><th>Costo unit.</th><th>Subtotal</th></tr></thead>
-    <tbody>${f.movs.filter((m) => !m.anulado).map((m, i) => { const mat = material(m.materialId); return `<tr><td>${i + 1}</td><td>${esc(mat?.descripcion)}</td><td style="text-align:right">${cant(m.cantidad)}</td><td>${esc(mat?.unidad)}</td><td style="text-align:right">${fmt(m.costo, 4)}</td><td style="text-align:right">${fmt(num(m.cantidad) * num(m.costo))}</td></tr>`; }).join('')}</tbody>
+    <tbody>${f.movs.filter((m) => !m.anulado).map((m, i) => { const mat = material(m.materialId); return `<tr><td>${i + 1}</td><td>${esc(mat?.descripcion)}</td><td style="text-align:right">${m.tipo === 'COSTO' ? '—' : cant(m.cantidad)}</td><td>${m.tipo === 'COSTO' ? 'flete' : esc(mat?.unidad)}</td><td style="text-align:right">${m.tipo === 'COSTO' ? '—' : fmt(m.costo, 4)}</td><td style="text-align:right">${fmt(importeMov(m))}</td></tr>`; }).join('')}</tbody>
     <tfoot><tr><td colspan="5">Total</td><td style="text-align:right">${fmt(f.total)}</td></tr></tfoot></table>
     <div class="firmas"><div>Recibí conforme (almacén)</div><div>V° B°</div></div>`);
 };
@@ -1435,6 +1466,22 @@ document.addEventListener('change', (ev) => {
 acciones['ver-por-pagar'] = () => {
   filtroFacturas.porPagar = true;
   location.hash = '#facturas';
+};
+
+acciones['cambiar-tc'] = (b) => {
+  const f = facturasDeCompra().find((x) => x.clave === b.dataset.clave);
+  const t = prompt(`Tipo de cambio de la factura ${f.documento} (soles por dólar, el de SUNAT del ${fechaPe(f.fecha)}):`, f.tc);
+  if (!t) return;
+  const tc = num(t);
+  if (tc <= 0) return alert('Escribe un número, por ejemplo 3.75');
+  f.movs.forEach((m) => {
+    m.costo = redondear(num(m.costoME) * tc, 6);
+    m.tcambio = tc;
+    m.tcProvisional = false;
+    m.obs = String(m.obs || '').replace(/TC [\d.]+/, 'TC ' + tc);
+  });
+  guardar();
+  render();
 };
 
 acciones['marcar-pago'] = (b) => {
@@ -1905,6 +1952,9 @@ function movimientosFiltrados() {
   }).sort((a, b) => -ordenCrono(a, b));
 }
 
+// Importe en soles de una línea de compra.
+const importeMov = (m) => (m.tipo === 'COSTO' ? num(m.costo) : num(m.cantidad) * num(m.costo));
+
 function signo(mv) {
   const c = num(mv.cantidad);
   return mv.tipo === 'SALIDA' ? -c : c;
@@ -1923,8 +1973,8 @@ function pintarMovimientos() {
       return `<tr class="${mv.anulado ? 'anulado' : ''}">
         <td>${fechaPe(mv.fecha)}</td><td>${etiquetaTipo(mv.tipo)}</td>
         <td><a href="#kardex/${mv.materialId}">${esc(m?.descripcion)}</a></td>
-        <td class="n ${s < 0 ? 'rojo' : 'verde'}">${s > 0 ? '+' : ''}${cant(s)} ${esc(m?.unidad)}</td>
-        <td class="n">${fmt(mv.tipo === 'ENTRADA' ? mv.costo : calc.costoMov.get(mv.id) || 0)}</td>
+        <td class="n ${s < 0 ? 'rojo' : 'verde'}">${mv.tipo === 'COSTO' ? `+ ${soles(mv.costo)} al costo` : `${s > 0 ? '+' : ''}${cant(s)} ${esc(m?.unidad)}`}</td>
+        <td class="n">${mv.tipo === 'COSTO' ? '—' : fmt(mv.tipo === 'ENTRADA' ? mv.costo : calc.costoMov.get(mv.id) || 0)}</td>
         <td>${mv.ordenId && orden(mv.ordenId) ? `<a href="#orden/${mv.ordenId}">${esc(orden(mv.ordenId).numero)}</a>` : ''}</td>
         <td>${mv.nroCompra ? `<a href="#factura/${mv.grupo || mv.id}"><b>${nroCompra(mv.nroCompra)}</b></a> · ` : ''}${esc(mv.documento)}</td><td>${esc(mv.tercero)}</td>
         <td>${esc(mv.obs)}${mv.anulado ? `<br><span class="rojo">Anulado: ${esc(mv.motivoAnulacion)}</span>` : ''}</td>
@@ -1935,8 +1985,8 @@ function pintarMovimientos() {
 }
 
 function etiquetaTipo(t) {
-  const c = { ENTRADA: 'e-verde', SALIDA: 'e-azul', DEVOLUCION: 'e-ambar', AJUSTE: 'e-rojo' }[t];
-  return `<span class="etiqueta ${c}">${{ ENTRADA: 'Entrada', SALIDA: 'Salida', DEVOLUCION: 'Devolución', AJUSTE: 'Ajuste' }[t]}</span>`;
+  const c = { ENTRADA: 'e-verde', SALIDA: 'e-azul', DEVOLUCION: 'e-ambar', AJUSTE: 'e-rojo', COSTO: 'e-verde' }[t];
+  return `<span class="etiqueta ${c}">${{ ENTRADA: 'Entrada', SALIDA: 'Salida', DEVOLUCION: 'Devolución', AJUSTE: 'Ajuste', COSTO: 'Flete / costo' }[t]}</span>`;
 }
 
 acciones.anular = (b) => {
@@ -2165,7 +2215,7 @@ function tablaKardex(m, movs, calc, paraImprimir = false) {
       return `<tr class="${mv.anulado ? 'anulado' : ''}">
         <td>${fechaPe(mv.fecha)}</td><td>${paraImprimir ? TIPOS[mv.tipo] : etiquetaTipo(mv.tipo)}</td><td>${mv.nroCompra ? `${nroCompra(mv.nroCompra)} · ` : ''}${esc(mv.documento)}</td>
         <td>${esc(orden(mv.ordenId)?.numero || '')}</td><td>${esc(mv.tercero)}</td>
-        <td class="n" style="text-align:right">${s > 0 ? cant(s) : ''}</td><td class="n" style="text-align:right">${s < 0 ? cant(-s) : ''}</td>
+        <td class="n" style="text-align:right">${mv.tipo === 'COSTO' ? `+ ${soles(mv.costo)}` : s > 0 ? cant(s) : ''}</td><td class="n" style="text-align:right">${s < 0 ? cant(-s) : ''}</td>
         <td class="n" style="text-align:right">${mv.anulado ? '' : cant(calc.saldoMov.get(mv.id))}</td>
         <td class="n" style="text-align:right">${fmt(mv.tipo === 'ENTRADA' ? mv.costo : calc.costoMov.get(mv.id) || 0)}</td></tr>`;
     }).join('')}</tbody></table></div>`;
