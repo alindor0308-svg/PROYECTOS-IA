@@ -68,6 +68,8 @@ Las facturas que el usuario envía en PDF se transcriben en `js/compras-registra
 | 19/09/2026 | F001-00033993 | Importadora Comercializadora del Norte S.A.C. – Eurotubo (RUC 20482690875) | S/ 1,118.40 |
 | 26/09/2026 | F002-00035209 | Importadora Comercializadora del Norte S.A.C. – Eurotubo (RUC 20482690875) | S/ 725.30 |
 | 26/09/2026 | FFF1-00016116 | Inversiones Ferreteros Palermo E.I.R.L. (RUC 20559675807) | S/ 25.00 |
+| 26/09/2026 | F001-00075421 | Incal Safety (RUC 20481800600) | S/ 24.00 |
+| 27/09/2026 | F686-00041337 | Tiendas del Mejoramiento del Hogar S.A. – Sodimac (RUC 20112273922) | S/ 22.90 |
 | 27/09/2026 | FA38-00820427 | Homecenters Peruanos S.A. – Promart (RUC 20536557858) | S/ 79.00 |
 | 28/09/2026 | F001-00000962 | Comercializadora Aleyarí (RUC 20601224373) | S/ 275.00 |
 | 29/09/2026 | F001-00206458 | Distribuidora Royer SAC (RUC 20559587185) · **Empresa** | S/ 12.14 |

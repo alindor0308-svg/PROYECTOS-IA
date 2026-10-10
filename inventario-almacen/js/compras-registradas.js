@@ -178,4 +178,28 @@ const COMPRAS_REGISTRADAS = [
       [1, 'UND', 'CENTRADOR DE ARO (AUTO)', 150],
     ],
   },
+  {
+    proveedor: 'INCAL SAFETY',
+    ruc: '20481800600',
+    documento: 'F001-00075421',
+    fecha: '2026-09-26',
+    pago: 'CONTADO',
+    centro: 'obra',
+    total: 24,
+    items: [
+      [3, 'PAR', 'GUANTE PROTEX CALIBRE 25 LARGO 12" C-25', 8],
+    ],
+  },
+  {
+    proveedor: 'TIENDAS DEL MEJORAMIENTO DEL HOGAR S.A. (SODIMAC)',
+    ruc: '20112273922',
+    documento: 'F686-00041337',
+    fecha: '2026-09-27',
+    pago: 'CONTADO (tarjeta)',
+    centro: 'obra',
+    total: 22.9,
+    items: [
+      [1, 'UND', 'DRIZA POLI (COD. 3499774)', 22.9],
+    ],
+  },
 ];
